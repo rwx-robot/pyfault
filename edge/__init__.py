@@ -1,0 +1,198 @@
+"""
+Edge Computing for PyFault framework.
+
+Provides serverless edge computing capabilities:
+- Edge Runtime: Lightweight function execution
+- Cold Start Optimizer: Pre-warming, snapshotting, predictive scaling
+- Edge Scheduler: Geo-routing, proximity-based scheduling
+- Edge Autoscaling: Rapid scaling with cost awareness
+- Edge Storage: Multi-tier distributed storage
+- Edge Networking: DNS, load balancing, rate limiting, WAF
+"""
+
+from .runtime import (
+    FunctionRuntime,
+    FunctionStatus,
+    FunctionConfig,
+    InvocationRequest,
+    InvocationResponse,
+    FunctionMetrics,
+    FunctionExecutor,
+    PythonExecutor,
+    EdgeRuntime,
+    FunctionPool,
+    get_runtime,
+    set_runtime,
+)
+
+from .coldstart import (
+    PrewarmStrategy,
+    SnapshotFormat,
+    ColdStartMetrics,
+    PrewarmConfig,
+    FunctionSnapshot,
+    SnapshotManager,
+    TrafficPredictor,
+    PrewarmScheduler,
+    ColdStartOptimizer,
+    InitOptimizer,
+    get_coldstart_optimizer,
+)
+
+from .scheduler import (
+    SchedulingStrategy,
+    EdgeNodeStatus,
+    GeoLocation,
+    EdgeNode,
+    SchedulingRequest,
+    SchedulingDecision,
+    NodeRegistry,
+    SchedulingStrategyBase,
+    LatencyBasedStrategy,
+    ProximityBasedStrategy,
+    CapacityBasedStrategy,
+    CostBasedStrategy,
+    ComplianceBasedStrategy,
+    HybridStrategy,
+    EdgeScheduler,
+    GeoRouter,
+    get_edge_scheduler,
+    get_geo_router,
+)
+
+from .autoscaling import (
+    ScalingDirection,
+    ScalingTrigger,
+    ScalingPolicyType,
+    EdgeScalingPolicy,
+    ScalingActivity,
+    RegionCapacity,
+    MetricCollector,
+    ScalingStrategy,
+    TargetTrackingStrategy,
+    StepScalingStrategy,
+    PredictiveScalingStrategy,
+    EdgeAutoscaler,
+    CapacityPlanner,
+    get_edge_autoscaler,
+)
+
+from .storage import (
+    StorageTier,
+    ConsistencyLevel,
+    ConflictResolution,
+    StorageConfig,
+    DataItem,
+    CacheBackend,
+    MemoryCache,
+    DiskCache,
+    EdgeStorage,
+    DistributedEdgeStorage,
+    get_edge_storage,
+)
+
+from .networking import (
+    LoadBalancerAlgorithm,
+    TLSMode,
+    RateLimitStrategy,
+    BackendEndpoint,
+    DNSRecord,
+    RateLimitRule,
+    WAFRule,
+    TLSConfig,
+    LoadBalancer,
+    DNSManager,
+    RateLimiter,
+    WAF,
+    EdgeNetworkManager,
+    get_edge_network,
+)
+
+__all__ = [
+    # Runtime
+    "FunctionRuntime",
+    "FunctionStatus",
+    "FunctionConfig",
+    "InvocationRequest",
+    "InvocationResponse",
+    "FunctionMetrics",
+    "FunctionExecutor",
+    "PythonExecutor",
+    "EdgeRuntime",
+    "FunctionPool",
+    "get_runtime",
+    "set_runtime",
+    # Cold Start
+    "PrewarmStrategy",
+    "SnapshotFormat",
+    "ColdStartMetrics",
+    "PrewarmConfig",
+    "FunctionSnapshot",
+    "SnapshotManager",
+    "TrafficPredictor",
+    "PrewarmScheduler",
+    "ColdStartOptimizer",
+    "InitOptimizer",
+    "get_coldstart_optimizer",
+    # Scheduler
+    "SchedulingStrategy",
+    "EdgeNodeStatus",
+    "GeoLocation",
+    "EdgeNode",
+    "SchedulingRequest",
+    "SchedulingDecision",
+    "NodeRegistry",
+    "SchedulingStrategyBase",
+    "LatencyBasedStrategy",
+    "ProximityBasedStrategy",
+    "CapacityBasedStrategy",
+    "CostBasedStrategy",
+    "ComplianceBasedStrategy",
+    "HybridStrategy",
+    "EdgeScheduler",
+    "GeoRouter",
+    "get_edge_scheduler",
+    "get_geo_router",
+    # Autoscaling
+    "ScalingDirection",
+    "ScalingTrigger",
+    "ScalingPolicyType",
+    "EdgeScalingPolicy",
+    "ScalingActivity",
+    "RegionCapacity",
+    "MetricCollector",
+    "ScalingStrategy",
+    "TargetTrackingStrategy",
+    "StepScalingStrategy",
+    "PredictiveScalingStrategy",
+    "EdgeAutoscaler",
+    "CapacityPlanner",
+    "get_edge_autoscaler",
+    # Storage
+    "StorageTier",
+    "ConsistencyLevel",
+    "ConflictResolution",
+    "StorageConfig",
+    "DataItem",
+    "CacheBackend",
+    "MemoryCache",
+    "DiskCache",
+    "EdgeStorage",
+    "DistributedEdgeStorage",
+    "get_edge_storage",
+    # Networking
+    "LoadBalancerAlgorithm",
+    "TLSMode",
+    "RateLimitStrategy",
+    "BackendEndpoint",
+    "DNSRecord",
+    "RateLimitRule",
+    "WAFRule",
+    "TLSConfig",
+    "LoadBalancer",
+    "DNSManager",
+    "RateLimiter",
+    "WAF",
+    "EdgeNetworkManager",
+    "get_edge_network",
+]

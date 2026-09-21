@@ -1,0 +1,279 @@
+"""
+Message Dispatcher for CQRS.
+"""
+
+import asyncio
+import time
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Awaitable
+from functools import wraps
+
+from pyfault.common.cqrs.command import Command, CommandResult, CommandBus
+from pyfault.common.cqrs.query import Query, QueryResult, QueryBus
+
+
+T = TypeVar("T")
+R = TypeVar("R")
+
+
+class Middleware(ABC):
+    """Base middleware class."""
+    
+    @abstractmethod
+    async def execute(self, message: Any, next_handler: Callable) -> Any:
+        """Execute middleware logic."""
+        pass
+
+
+class CommandMiddleware(Middleware):
+    """Middleware for command processing."""
+    
+    async def execute(self, command: "Command", next_handler: Callable) -> "CommandResult":
+        return await next_handler(command)
+
+
+class QueryMiddleware(Middleware):
+    """Middleware for query processing."""
+    
+    async def execute(self, query: "Query", next_handler: Callable) -> "QueryResult":
+        return await next_handler(query)
+
+
+class MiddlewareChain:
+    """Chain of middleware for command/query processing."""
+    
+    def __init__(self, middleware: List[Middleware], final_handler: Callable):
+        self._middleware = middleware
+        self._final_handler = final_handler
+    
+    async def execute(self, message) -> Any:
+        """Execute the middleware chain."""
+        # Build the chain in reverse order (last middleware wraps the handler)
+        handler = self._build_chain()
+        return await handler(message)
+    
+    def _build_chain(self) -> Callable:
+        handler = self._final_handler
+        
+        # Wrap handler with middleware in reverse order
+        for middleware in reversed(self._middleware):
+            current_handler = handler
+            middleware_instance = middleware
+            
+            async def middleware_wrapper(msg, next_handler=current_handler, mw=middleware_instance):
+                return await mw.execute(msg, next_handler)
+            
+            handler = middleware_wrapper
+        
+        return handler
+
+
+# Built-in middlewares
+class LoggingMiddleware(CommandMiddleware):
+    """Middleware for logging commands/queries."""
+    
+    def __init__(self, logger=None):
+        self.logger = logger or print
+    
+    async def execute(self, message, next_handler):
+        import time
+        start = time.time()
+        
+        msg_type = "Command" if hasattr(message, 'command_id') else "Query"
+        msg_id = getattr(message, 'command_id', getattr(message, 'query_id', 'unknown'))
+        
+        self.logger(f"[{msg_type}] {type(message).__name__} [{msg_id}] - START")
+        
+        try:
+            result = await next_handler(message)
+            duration = (time.time() - start) * 1000
+            status = "SUCCESS" if getattr(result, 'success', True) else "FAILED"
+            self.logger(f"[{msg_type}] {type(message).__name__} [{getattr(message, 'command_id', getattr(message, 'query_id', 'unknown'))}] - {status} ({duration:.2f}ms)")
+            return result
+        except Exception as e:
+            duration = (time.time() - start) * 1000
+            self.logger(f"[{type(message).__name__}] {type(message).__name__} - ERROR ({duration:.2f}ms): {e}")
+            raise
+
+
+class ValidationMiddleware(CommandMiddleware):
+    """Middleware for additional validation."""
+    
+    def __init__(self, validators: Dict[Type, Callable] = None):
+        self.validators = validators or {}
+    
+    async def execute(self, command: "Command", next_handler: Callable) -> "CommandResult":
+        # Run custom validators
+        validator = self.validators.get(type(command))
+        if validator:
+            errors = await validator(command) if asyncio.iscoroutinefunction(validator) else validator(command)
+            if errors:
+                from pyfault.common.cqrs.command import CommandResult
+                return CommandResult(
+                    success=False,
+                    command_id=command.command_id,
+                    error=f"Custom validation failed: {', '.join(errors)}",
+                )
+        return await next_handler(command)
+
+
+class RetryMiddleware(CommandMiddleware):
+    """Middleware for retrying failed commands."""
+    
+    def __init__(self, max_retries: int = 3, delay: float = 1.0, backoff: float = 2.0):
+        self.max_retries = max_retries
+        self.delay = delay
+        self.backoff = backoff
+    
+    async def execute(self, command: "Command", next_handler: Callable) -> "CommandResult":
+        last_error = None
+        delay = self.delay
+        
+        for attempt in range(self.max_retries + 1):
+            try:
+                result = await next_handler(command)
+                if result.success:
+                    return result
+                last_error = result.error
+            except Exception as e:
+                last_error = str(e)
+            
+            if attempt < self.max_retries:
+                await asyncio.sleep(delay)
+                delay *= self.backoff
+        
+        from pyfault.common.cqrs.command import CommandResult
+        return CommandResult(
+            success=False,
+            command_id=getattr(command, 'command_id', 'unknown'),
+            error=f"Failed after {self.max_retries + 1} attempts: {last_error}",
+        )
+
+
+class IdempotencyMiddleware(CommandMiddleware):
+    """Middleware for command idempotency."""
+    
+    def __init__(self, store: Dict = None):
+        self._processed = store or {}
+    
+    async def execute(self, command: "Command", next_handler: Callable) -> "CommandResult":
+        # Check if command was already processed
+        if command.command_id in self._processed:
+            from pyfault.common.cqrs.command import CommandResult
+            return CommandResult(
+                success=True,
+                command_id=command.command_id,
+                metadata={"idempotent": True, "original": self._processed[command.command_id].to_dict()},
+            )
+        
+        result = await next_handler(command)
+        
+        # Store successful results
+        if result.success:
+            self._processed[command.command_id] = result
+        
+        return result
+
+
+class TransactionMiddleware(CommandMiddleware):
+    """Middleware for transactional command execution."""
+    
+    def __init__(self, transaction_manager=None):
+        self.transaction_manager = transaction_manager
+    
+    async def execute(self, command: "Command", next_handler: Callable) -> "CommandResult":
+        if not self.transaction_manager:
+            return await next_handler(command)
+        
+        async with self.transaction_manager.transaction():
+            return await next_handler(command)
+
+
+# Middleware chain builder
+class MiddlewareChainBuilder:
+    """Builder for middleware chains."""
+    
+    def __init__(self):
+        self._middleware: List[Middleware] = []
+    
+    def add(self, middleware: Middleware) -> "MiddlewareChainBuilder":
+        self._middleware.append(middleware)
+        return self
+    
+    def add_logging(self, logger=None) -> "MiddlewareChainBuilder":
+        return self.add(LoggingMiddleware(logger))
+    
+    def add_validation(self, validators: Dict = None) -> "MiddlewareChainBuilder":
+        return self.add(ValidationMiddleware(validators))
+    
+    def add_retry(self, max_retries: int = 3, delay: float = 1.0, backoff: float = 2.0) -> "MiddlewareChainBuilder":
+        return self.add(RetryMiddleware(max_retries, delay=delay, backoff=backoff))
+    
+    def add_idempotency(self, store=None) -> "MiddlewareChainBuilder":
+        return self.add(IdempotencyMiddleware(store))
+    
+    def add_transaction(self, transaction_manager=None) -> "MiddlewareChainBuilder":
+        return self.add(TransactionMiddleware(transaction_manager))
+    
+    def build(self, final_handler: Callable) -> "MiddlewareChain":
+        return MiddlewareChain(self._middleware, final_handler)
+
+
+# Decorators for middleware
+def with_middleware(*middlewares: Middleware):
+    """Decorator to add middleware to a handler."""
+    def decorator(handler: Callable):
+        @wraps(handler)
+        async def wrapper(*args, **kwargs):
+            chain = MiddlewareChain(list(middlewares), handler)
+            return await chain.execute(args[0] if args else None)
+        return wrapper
+    return decorator
+
+
+# Message dispatcher for unified command/query handling
+class MessageDispatcher:
+    """Unified dispatcher for commands and queries."""
+    
+    def __init__(self):
+        self.command_bus = CommandBus()
+        self.query_bus = QueryBus()
+        self._command_middleware: List[CommandMiddleware] = []
+        self._query_middleware: List[QueryMiddleware] = []
+    
+    def add_command_middleware(self, middleware: CommandMiddleware) -> None:
+        self._command_middleware.append(middleware)
+    
+    def add_query_middleware(self, middleware: QueryMiddleware) -> None:
+        self._query_middleware.append(middleware)
+    
+    def register_command_handler(self, handler) -> None:
+        self.command_bus.register(handler)
+    
+    def register_query_handler(self, handler) -> None:
+        self.query_bus.register(handler)
+    
+    async def dispatch_command(self, command: "Command") -> "CommandResult":
+        # Apply command middleware chain
+        chain = MiddlewareChain(self._command_middleware, self.command_bus.dispatch)
+        return await chain.execute(command)
+    
+    async def dispatch_query(self, query: "Query") -> "QueryResult":
+        chain = MiddlewareChain(self._query_middleware, self.query_bus.dispatch)
+        return await chain.execute(query)
+    
+    async def dispatch(self, message) -> Any:
+        """Dispatch either a command or query based on type."""
+        if hasattr(message, 'command_id'):
+            return await self.dispatch_command(message)
+        elif hasattr(message, 'query_id'):
+            return await self.dispatch_query(message)
+        else:
+            raise ValueError("Message must be either a Command or Query")
+    
+    def register_command_middleware(self, middleware: CommandMiddleware) -> None:
+        self._command_middleware.append(middleware)
+    
+    def register_query_middleware(self, middleware: QueryMiddleware) -> None:
+        self._query_middleware.append(middleware)
