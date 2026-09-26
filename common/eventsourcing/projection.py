@@ -281,7 +281,7 @@ class ProjectionManager:
     async def start(self, poll_interval: float = 1.0) -> None:
         """Start the projection manager (for async projections)."""
         self._running = True
-        self._poll_interval = 1.0
+        self._poll_interval = poll_interval
         self._processing_task = asyncio.create_task(self._process_loop())
 
     async def stop(self) -> None:
@@ -326,10 +326,17 @@ class ProjectionManager:
             type=projection.projection_type,
         )
 
-        # Fetch and process events
+        # Fetch and process events (full replay unless bounded by the caller).
+        # Stores return newest-first; replay must run oldest-first.
         events = await self.event_store.get_all_events(
-            from_timestamp=projection.status.last_processed_timestamp,
+            from_timestamp=from_timestamp,
+            limit=1_000_000,
         )
+        events.sort(key=lambda e: e.metadata.timestamp)
+        if from_event_id is not None:
+            ids = [e.metadata.event_id for e in events]
+            if from_event_id in ids:
+                events = events[ids.index(from_event_id) + 1 :]
 
         await self.process_events_batch(events)
 
@@ -373,14 +380,32 @@ class EventHandlerRegistry:
         return self._handlers.get(event_type, [])
 
     def handle_event(self, event: Event) -> list[Any]:
-        """Execute all handlers for an event."""
+        """Execute all handlers for an event (sync context).
+
+        Async handlers cannot run here: their coroutine body never starts
+        when called synchronously, so they are closed and skipped. Use
+        :meth:`ahandle_event` to await them.
+        """
         results = []
         for handler in self._handlers.get(event.event_type, []):
             try:
                 result = handler(event)
-                if asyncio.iscoroutinefunction(handler):
-                    # Would need to be awaited in async context
-                    pass
+                if asyncio.iscoroutine(result):
+                    result.close()
+                    continue
+                results.append(result)
+            except Exception:
+                pass
+        return results
+
+    async def ahandle_event(self, event: Event) -> list[Any]:
+        """Execute all handlers for an event, awaiting async handlers."""
+        results = []
+        for handler in self._handlers.get(event.event_type, []):
+            try:
+                result = handler(event)
+                if asyncio.iscoroutine(result):
+                    result = await result
                 results.append(result)
             except Exception:
                 pass

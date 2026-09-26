@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional, TypeVar, cast
+from typing import Any, Optional, TypeVar
 
 from pyfault.common.eventsourcing.events import DomainEvent, Event, EventMetadata
 
@@ -54,6 +54,12 @@ class StoredEvent:
 
     @classmethod
     def from_event(cls, event: "Event") -> "StoredEvent":
+        metadata = event.metadata.to_dict()
+        if isinstance(event, DomainEvent):
+            # Domain events carry an aggregate_root_id that lives outside
+            # EventMetadata; persist it inside metadata so roundtrips
+            # through to_event() don't lose it.
+            metadata["aggregate_root_id"] = event.aggregate_root_id
         return cls(
             event_id=event.metadata.event_id,
             aggregate_id=event.aggregate_id,
@@ -65,7 +71,7 @@ class StoredEvent:
             causation_id=event.metadata.causation_id,
             user_id=event.metadata.user_id,
             payload=event.payload,
-            metadata=event.metadata.to_dict(),
+            metadata=metadata,
         )
 
     def to_event(self, event_class: Optional[type] = None) -> "Event":
@@ -80,6 +86,9 @@ class StoredEvent:
                 version=self.version,
                 metadata=EventMetadata.from_dict(self.metadata),
                 payload=self.payload,
+                aggregate_root_id=str(
+                    self.metadata.get("aggregate_root_id", "")
+                ),
             )
         else:
             event = EventFactory.create_event(
@@ -367,7 +376,7 @@ class PostgresEventStore(EventStore):
                             event_id, aggregate_id, aggregate_type, event_type,
                             version, timestamp, correlation_id, causation_id,
                             user_id, payload, metadata
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                     """,
                     stored.event_id,
                     stored.aggregate_id,
@@ -396,6 +405,9 @@ class PostgresEventStore(EventStore):
                 version=row["version"],
                 metadata=EventMetadata.from_dict(row["metadata"]),
                 payload=row["payload"],
+                aggregate_root_id=str(
+                    dict(row["metadata"]).get("aggregate_root_id", "")
+                ),
             )
         else:
             event = EventFactory.create_event(
@@ -541,7 +553,12 @@ class EventStoreFactory:
         if store_type == EventStoreType.MEMORY:
             return InMemoryEventStore()
         elif store_type == EventStoreType.POSTGRES:
-            return PostgresEventStore(cast("str", kwargs.get("connection_string")))
+            connection_string = kwargs.get("connection_string")
+            if not isinstance(connection_string, str):
+                raise ValueError(
+                    "connection_string is required for the postgres event store"
+                )
+            return PostgresEventStore(connection_string)
         elif store_type == EventStoreType.MONGODB:
             raise NotImplementedError("MongoDB event store not yet implemented")
         elif store_type == EventStoreType.REDIS:
