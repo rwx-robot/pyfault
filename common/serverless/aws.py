@@ -8,7 +8,6 @@ from typing import Any, Callable
 from pyfault.common.serverless.base import (
     ServerlessAdapter,
     ServerlessRequest,
-    ServerlessResponse,
 )
 
 
@@ -25,11 +24,13 @@ class AWSLambdaAdapter(ServerlessAdapter):
         if "requestContext" in event and "elb" in event["requestContext"]:
             return self._parse_alb_event(event)
 
-        # Handle Function URL events
+        # Handle Function URL events (domain looks like
+        # <id>.lambda-url.<region>.on.aws — "function" never appears there)
         if (
             "requestContext" in event
             and "domainName" in event["requestContext"]
-            and "function" in event["requestContext"].get("domainName", "")
+            and "lambda-url"
+            in str(event["requestContext"].get("domainName", ""))
         ):
             return self._parse_function_url_event(event)
 
@@ -134,19 +135,6 @@ class AWSLambdaAdapter(ServerlessAdapter):
             "isBase64Encoded": getattr(response, "is_base64_encoded", False),
         }
 
-    async def _handle_request(self, scope: dict[str, Any]) -> "ServerlessResponse":
-        """Handle ASGI request using the application."""
-        from pyfault.common.serverless.base import ServerlessResponse
-
-        # This would integrate with the actual ASGI app
-        # For now, return a placeholder
-        return ServerlessResponse(
-            status_code=200,
-            headers={"content-type": "application/json"},
-            body='{"message": "Serverless adapter working"}',
-        )
-
-
 def create_lambda_handler(app_factory: Callable) -> Callable:
     """Create a Lambda handler from an app factory."""
     adapter = AWSLambdaAdapter(app_factory)
@@ -160,14 +148,12 @@ def create_lambda_handler(app_factory: Callable) -> Callable:
         import asyncio
         return asyncio.run(adapter.handle(event, context))
 
-    # Try to detect async context
+    # Detect whether we are created inside a running event loop. Only
+    # get_running_loop is reliable here: get_event_loop would emit a
+    # DeprecationWarning (and create a loop) in synchronous contexts.
+    import asyncio
     try:
-        import asyncio
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # We're in an async context, return async handler
-            return handler
+        asyncio.get_running_loop()
+        return handler
     except RuntimeError:
-        pass
-
-    return sync_handler
+        return sync_handler

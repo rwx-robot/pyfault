@@ -8,7 +8,6 @@ from typing import Any, Callable
 from pyfault.common.serverless.base import (
     ServerlessAdapter,
     ServerlessRequest,
-    ServerlessResponse,
 )
 
 
@@ -40,11 +39,19 @@ class AzureFunctionsAdapter(ServerlessAdapter):
             for k, v in request.headers.items():
                 headers[k] = v
 
+            from urllib.parse import parse_qs, urlparse
+
+            url = urlparse(str(request.url))
+            query_params = dict(request.params)
+            if not query_params and url.query:
+                query_params = {
+                    k: v[0] for k, v in parse_qs(url.query).items()
+                }
             return ServerlessRequest(
                 method=request.method,
-                path=request.url.path,
+                path=url.path or "/",
                 headers=headers,
-                query_params=dict(request.params),
+                query_params=query_params,
                 body=request.get_body().decode("utf-8") if hasattr(request, "get_body") else "",
                 path_params={},
                 raw_event=request,
@@ -52,11 +59,19 @@ class AzureFunctionsAdapter(ServerlessAdapter):
 
         # Handle dict-based request
         if isinstance(request, dict):
+            from urllib.parse import parse_qs, urlparse
+
+            url = urlparse(str(request.get("url", "/")))
+            query_params = request.get("params", request.get("query")) or (
+                {k: v[0] for k, v in parse_qs(url.query).items()}
+                if url.query
+                else {}
+            )
             return ServerlessRequest(
                 method=request.get("method", "GET"),
-                path=request.get("url", "/"),
+                path=url.path or "/",
                 headers=request.get("headers", {}) or {},
-                query_params=request.get("params", request.get("query", {})) or {},
+                query_params=query_params,
                 body=request.get("body", ""),
                 path_params={},
                 raw_event=request,
@@ -77,15 +92,17 @@ class AzureFunctionsAdapter(ServerlessAdapter):
         )
 
     def _parse_timer_trigger(self, event: dict[str, Any]) -> ServerlessRequest:
-        """Parse Timer trigger."""
+        """Parse Timer trigger (details nested under ``timer``)."""
+        timer = event.get("timer")
+        timer = timer if isinstance(timer, dict) else {}
         return ServerlessRequest(
             method="POST",
             path="/timer",
             headers={"content-type": "application/json"},
             query_params={},
             body=json.dumps({
-                "schedule": event.get("schedule", ""),
-                "past_due": event.get("pastDue", False),
+                "schedule": timer.get("schedule", ""),
+                "past_due": timer.get("pastDue", False),
             }),
             path_params={},
             raw_event=event,
@@ -133,16 +150,6 @@ class AzureFunctionsAdapter(ServerlessAdapter):
             "headers": resp_dict.get("headers", {"Content-Type": "application/json"}),
             "body": resp_dict.get("body", ""),
         }
-
-    async def _handle_request(self, scope: dict[str, Any]) -> "ServerlessResponse":
-        """Handle ASGI request."""
-        from pyfault.common.serverless.base import ServerlessResponse
-
-        return ServerlessResponse(
-            status_code=200,
-            headers={"content-type": "application/json"},
-            body='{"message": "Azure Functions adapter working"}',
-        )
 
 
 def create_azure_handler(app_factory: Callable) -> Callable:

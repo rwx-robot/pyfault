@@ -9,7 +9,6 @@ from typing import Any, Callable
 from pyfault.common.serverless.base import (
     ServerlessAdapter,
     ServerlessRequest,
-    ServerlessResponse,
 )
 
 
@@ -26,8 +25,8 @@ class GCFAdapter(ServerlessAdapter):
         if "specversion" in event:
             return self._parse_cloudevent(event)
 
-        # Background/PubSub trigger
-        if "data" in event and "message" in event.get("data", {}):
+        # Background/PubSub trigger (message lives under data.message)
+        if isinstance(event.get("data"), dict) and "message" in event["data"]:
             return self._parse_pubsub_event(event)
 
         return self._parse_generic_event(event)
@@ -59,8 +58,9 @@ class GCFAdapter(ServerlessAdapter):
         )
 
     def _parse_pubsub_event(self, event: dict[str, Any]) -> ServerlessRequest:
-        """Parse Pub/Sub event."""
-        message = event.get("message", {})
+        """Parse Pub/Sub push event (message nested under ``data``)."""
+        data_field = event.get("data")
+        message = data_field.get("message", {}) if isinstance(data_field, dict) else {}
         data = message.get("data", "")
 
         # Decode base64 data if needed
@@ -105,16 +105,6 @@ class GCFAdapter(ServerlessAdapter):
             "headers": getattr(response, "headers", {"content-type": "application/json"}),
             "body": getattr(response, "body", ""),
         }
-
-    async def _handle_request(self, scope: dict[str, Any]) -> "ServerlessResponse":
-        """Handle ASGI request."""
-        from pyfault.common.serverless.base import ServerlessResponse
-
-        return ServerlessResponse(
-            status_code=200,
-            headers={"content-type": "application/json"},
-            body='{"message": "GCF adapter working"}',
-        )
 
 
 def create_gcf_handler(app_factory: Callable) -> Callable:
