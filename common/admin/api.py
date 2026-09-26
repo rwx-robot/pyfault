@@ -4,6 +4,7 @@ Admin API for PyFault framework.
 
 from typing import Any
 
+from pyfault import __version__
 from pyfault.common.plugins import get_plugin_manager
 from pyfault.common.tenant import get_current_tenant
 
@@ -15,22 +16,22 @@ class AdminAPIRouter:
         self._routes: list[dict[str, Any]] = [
             {"path": "/api/admin/status", "method": "GET", "handler": self.get_status},
             {"path": "/api/admin/plugins", "method": "GET", "handler": self.list_plugins},
-            {"path": "/api/admin/plugins/{name}", "method": "GET", "handler": "get_plugin"},
-            {"path": "/api/admin/plugins/{name}/config", "method": "GET", "handler": "get_plugin_config"},
-            {"path": "/api/admin/plugins/{name}/config", "method": "PUT", "handler": "update_plugin_config"},
-            {"path": "/api/admin/plugins/{name}/start", "method": "POST", "handler": "start_plugin"},
-            {"path": "/api/admin/plugins/{name}/stop", "method": "POST", "handler": "stop_plugin"},
-            {"path": "/api/admin/plugins/{name}/restart", "method": "POST", "handler": "restart_plugin"},
-            {"path": "/api/admin/tenants", "method": "GET", "handler": "list_tenants"},
-            {"path": "/api/admin/tenants/{id}", "method": "GET", "handler": "get_tenant"},
-            {"path": "/api/admin/tenants", "method": "POST", "handler": "create_tenant"},
-            {"path": "/api/admin/tenants/{id}", "method": "PUT", "handler": "update_tenant"},
-            {"path": "/api/admin/tenants/{id}", "method": "DELETE", "handler": "delete_tenant"},
-            {"path": "/api/admin/metrics", "method": "GET", "handler": "get_metrics"},
-            {"path": "/api/admin/health", "method": "GET", "handler": "health_check"},
-            {"path": "/api/admin/logs", "method": "GET", "handler": "get_logs"},
-            {"path": "/api/admin/config", "method": "GET", "handler": "get_config"},
-            {"path": "/api/admin/config", "method": "PUT", "handler": "update_config"},
+            {"path": "/api/admin/plugins/{name}", "method": "GET", "handler": self.get_plugin},
+            {"path": "/api/admin/plugins/{name}/config", "method": "GET", "handler": self.get_plugin_config},
+            {"path": "/api/admin/plugins/{name}/config", "method": "PUT", "handler": self.update_plugin_config},
+            {"path": "/api/admin/plugins/{name}/start", "method": "POST", "handler": self.start_plugin},
+            {"path": "/api/admin/plugins/{name}/stop", "method": "POST", "handler": self.stop_plugin},
+            {"path": "/api/admin/plugins/{name}/restart", "method": "POST", "handler": self.restart_plugin},
+            {"path": "/api/admin/tenants", "method": "GET", "handler": self.list_tenants},
+            {"path": "/api/admin/tenants/{id}", "method": "GET", "handler": self.get_tenant},
+            {"path": "/api/admin/tenants", "method": "POST", "handler": self.create_tenant},
+            {"path": "/api/admin/tenants/{id}", "method": "PUT", "handler": self.update_tenant},
+            {"path": "/api/admin/tenants/{id}", "method": "DELETE", "handler": self.delete_tenant},
+            {"path": "/api/admin/metrics", "method": "GET", "handler": self.get_metrics},
+            {"path": "/api/admin/health", "method": "GET", "handler": self.health_check},
+            {"path": "/api/admin/logs", "method": "GET", "handler": self.get_logs},
+            {"path": "/api/admin/config", "method": "GET", "handler": self.get_config},
+            {"path": "/api/admin/config", "method": "PUT", "handler": self.update_config},
         ]
 
     def get_routes(self) -> list[dict[str, Any]]:
@@ -44,7 +45,7 @@ class AdminAPIRouter:
 
         return {
             "status": "ok",
-            "version": "1.4.0",
+            "version": __version__,
             "plugins": len(plugins),
             "running": sum(1 for p in plugins.values() if p.state.value == "running"),
             "tenant": tenant.id if tenant is not None else "default",
@@ -102,28 +103,39 @@ class AdminAPIRouter:
             return {"success": True}
         return {"error": "Plugin not found"}, 404
 
-    async def start_plugin(self, request: Any) -> dict[str, Any]:
+    async def start_plugin(
+        self, request: Any
+    ) -> dict[str, Any] | tuple[dict[str, Any], int]:
         """Start a plugin."""
         name = request.path_params.get("name")
         plugin_manager = get_plugin_manager()
 
-        await plugin_manager.start_plugins([name])
+        results = await plugin_manager.start_plugins([name])
+        if not results.get(name):
+            return {"error": "Failed to start plugin", "plugin": name}, 400
         return {"success": True, "plugin": name}
 
-    async def stop_plugin(self, request: Any) -> dict[str, Any]:
+    async def stop_plugin(
+        self, request: Any
+    ) -> dict[str, Any] | tuple[dict[str, Any], int]:
         """Stop a plugin."""
         name = request.path_params.get("name")
         plugin_manager = get_plugin_manager()
 
-        await plugin_manager.stop_plugins([name])
+        results = await plugin_manager.stop_plugins([name])
+        if not results.get(name):
+            return {"error": "Failed to stop plugin", "plugin": name}, 400
         return {"success": True, "plugin": name}
 
-    async def restart_plugin(self, request: Any) -> dict[str, Any]:
+    async def restart_plugin(
+        self, request: Any
+    ) -> dict[str, Any] | tuple[dict[str, Any], int]:
         """Restart a plugin."""
         name = request.path_params.get("name")
         plugin_manager = get_plugin_manager()
 
-        await plugin_manager.reload_plugin(name)
+        if not await plugin_manager.reload_plugin(name):
+            return {"error": "Failed to restart plugin", "plugin": name}, 400
         return {"success": True, "plugin": name}
 
     async def list_tenants(self, request: Any) -> dict[str, Any]:
@@ -191,7 +203,7 @@ class AdminAPIRouter:
     async def get_config(self, request: Any) -> dict[str, Any]:
         """Get admin configuration."""
         return {
-            "version": "1.4.0",
+            "version": __version__,
             "features": {
                 "plugins": True,
                 "tenants": True,

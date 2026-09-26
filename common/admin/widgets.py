@@ -274,10 +274,16 @@ class TableWidget(BaseWidget):
 
         for name, data in metrics.items():
             if isinstance(data, dict) and "count" in data:
+                count = data["count"]
+                total = data.get("total_time")
+                if count > 0 and isinstance(total, (int, float)):
+                    avg_time = f"{total / count:.3f}s"
+                else:
+                    avg_time = "N/A"
                 rows.append({
                     "metric": name,
-                    "count": data["count"],
-                    "avg_time": f"{data['total_time']/data['count']:.3f}s" if data['count'] > 0 else "N/A",
+                    "count": count,
+                    "avg_time": avg_time,
                     "errors": data.get("errors", 0),
                 })
 

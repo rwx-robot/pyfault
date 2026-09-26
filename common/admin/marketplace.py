@@ -68,6 +68,21 @@ class MarketplaceConfig:
     auto_update: bool = False
 
 
+def _version_key(version: str) -> tuple[tuple[int, int, str], ...]:
+    """Sort key that orders numeric segments numerically.
+
+    Plain string sorting puts "9.0.0" above "10.0.0"; each segment is
+    tagged so numeric segments compare as ints and the rest as strings.
+    """
+    parts: list[tuple[int, int, str]] = []
+    for segment in version.split("."):
+        if segment.isdigit():
+            parts.append((1, int(segment), ""))
+        else:
+            parts.append((0, 0, segment))
+    return tuple(parts)
+
+
 class PluginMarketplace:
     """Plugin marketplace for discovering and installing plugins."""
 
@@ -97,8 +112,8 @@ class PluginMarketplace:
             versions = [k for k in self._packages if k.startswith(f"{name}@")]
             if not versions:
                 return None
-            # Sort by version (simple semantic versioning)
-            versions.sort(key=lambda x: x.split("@")[1], reverse=True)
+            # Sort by semantic version (numeric segments compare as ints)
+            versions.sort(key=lambda x: _version_key(x.split("@", 1)[1]), reverse=True)
             return self._packages[versions[0]]
 
         key = f"{name}@{version}"
@@ -145,8 +160,8 @@ class PluginMarketplace:
         versions = []
         for key in self._packages:
             if key.startswith(f"{name}@"):
-                versions.append(key.split("@")[1])
-        return sorted(versions, reverse=True)
+                versions.append(key.split("@", 1)[1])
+        return sorted(versions, key=_version_key, reverse=True)
 
     def install_package(self, name: str, version: str = "latest") -> dict[str, Any]:
         """Install a plugin package."""

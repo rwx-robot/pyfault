@@ -7,6 +7,7 @@ import contextlib
 import json
 from typing import Any, Optional
 
+from pyfault import __version__
 from pyfault.common.plugins import get_plugin_manager
 from pyfault.common.tenant import get_current_tenant
 
@@ -104,12 +105,16 @@ class AdminWebSocketHandler:
             await websocket.send_json({"type": "error", "message": "Plugin name required"})
             return
 
-
         try:
-            await get_plugin_manager().start_plugins([payload["plugin"]])
+            results = await get_plugin_manager().start_plugins([plugin_name])
+            if not results.get(plugin_name):
+                await websocket.send_json(
+                    {"type": "error", "message": "Failed to start plugin"}
+                )
+                return
             await websocket.send_json({
                 "type": "plugin_started",
-                "plugin": payload["plugin"],
+                "plugin": plugin_name,
             })
         except Exception as e:
             await websocket.send_json({"type": "error", "message": str(e)})
@@ -121,12 +126,16 @@ class AdminWebSocketHandler:
             await websocket.send_json({"type": "error", "message": "Plugin name required"})
             return
 
-
         try:
-            await get_plugin_manager().stop_plugins([payload["plugin"]])
+            results = await get_plugin_manager().stop_plugins([plugin_name])
+            if not results.get(plugin_name):
+                await websocket.send_json(
+                    {"type": "error", "message": "Failed to stop plugin"}
+                )
+                return
             await websocket.send_json({
                 "type": "plugin_stopped",
-                "plugin": payload["plugin"],
+                "plugin": plugin_name,
             })
         except Exception as e:
             await websocket.send_json({"type": "error", "message": str(e)})
@@ -138,12 +147,15 @@ class AdminWebSocketHandler:
             await websocket.send_json({"type": "error", "message": "Plugin name required"})
             return
 
-
         try:
-            await get_plugin_manager().reload_plugin(payload["plugin"])
+            if not await get_plugin_manager().reload_plugin(plugin_name):
+                await websocket.send_json(
+                    {"type": "error", "message": "Failed to restart plugin"}
+                )
+                return
             await websocket.send_json({
                 "type": "plugin_restarted",
-                "plugin": payload["plugin"],
+                "plugin": plugin_name,
             })
         except Exception as e:
             await websocket.send_json({"type": "error", "message": str(e)})
@@ -157,10 +169,13 @@ class AdminWebSocketHandler:
             await websocket.send_json({"type": "error", "message": "Plugin name required"})
             return
 
-
         plugin_manager = get_plugin_manager()
         try:
-            plugin_manager.update_config(plugin_name, config)
+            if not plugin_manager.update_config(plugin_name, config):
+                await websocket.send_json(
+                    {"type": "error", "message": "Plugin not found"}
+                )
+                return
             await websocket.send_json({
                 "type": "config_updated",
                 "plugin": plugin_name,
@@ -191,7 +206,7 @@ class AdminWebSocketHandler:
             "data": {
                 "plugins": plugins,
                 "tenant": tenant.id if tenant else "default",
-                "version": "1.4.0",
+                "version": __version__,
             },
         })
 

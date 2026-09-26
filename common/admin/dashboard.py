@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from pyfault import __version__
 from pyfault.common.plugins import get_plugin_manager
 from pyfault.common.tenant import get_current_tenant
 
@@ -70,7 +71,7 @@ class AdminDashboard:
 
         return {
             "timestamp": time.time(),
-            "version": "1.4.0",
+            "version": __version__,
             "plugins": plugins_info,
             "plugin_count": len(plugins_info),
             "running_plugins": sum(1 for p in plugins_info.values() if p["state"] == "running"),
@@ -145,25 +146,36 @@ class AdminAPIRouter:
             return {"error": "Plugin not found"}, 404
         return details
 
-    async def start_plugin(self, request: Any) -> dict[str, Any]:
+    async def start_plugin(
+        self, request: Any
+    ) -> dict[str, Any] | tuple[dict[str, Any], int]:
         """Start a plugin."""
         plugin_name = request.path_params.get("name")
         plugin_manager = get_plugin_manager()
-        await plugin_manager.start_plugins([plugin_name])
+        results = await plugin_manager.start_plugins([plugin_name])
+        if not results.get(plugin_name):
+            return {"error": "Failed to start plugin", "plugin": plugin_name}, 400
         return {"success": True, "plugin": plugin_name}
 
-    async def stop_plugin(self, request: Any) -> dict[str, Any]:
+    async def stop_plugin(
+        self, request: Any
+    ) -> dict[str, Any] | tuple[dict[str, Any], int]:
         """Stop a plugin."""
         plugin_name = request.path_params.get("name")
         plugin_manager = get_plugin_manager()
-        await plugin_manager.stop_plugins([plugin_name])
+        results = await plugin_manager.stop_plugins([plugin_name])
+        if not results.get(plugin_name):
+            return {"error": "Failed to stop plugin", "plugin": plugin_name}, 400
         return {"success": True, "plugin": plugin_name}
 
-    async def restart_plugin(self, request: Any) -> dict[str, Any]:
+    async def restart_plugin(
+        self, request: Any
+    ) -> dict[str, Any] | tuple[dict[str, Any], int]:
         """Restart a plugin."""
         plugin_name = request.path_params.get("name")
         plugin_manager = get_plugin_manager()
-        await plugin_manager.reload_plugin(plugin_name)
+        if not await plugin_manager.reload_plugin(plugin_name):
+            return {"error": "Failed to restart plugin", "plugin": plugin_name}, 400
         return {"success": True, "plugin": plugin_name}
 
     async def get_tenants(self, request: Any) -> dict[str, Any]:
@@ -182,8 +194,10 @@ class AdminAPIRouter:
         metrics_plugin = plugin_manager.get_plugin("metrics")
 
         if metrics_plugin:
-            metrics: dict[str, Any] = metrics_plugin.get_metrics()  # type: ignore[attr-defined]
-            return metrics
+            getter = getattr(metrics_plugin, "get_metrics", None)
+            if getter is not None:
+                metrics: dict[str, Any] = getter()
+                return metrics
         return {"metrics": {}}
 
     async def get_health(self, request: Any) -> dict[str, Any]:
@@ -192,8 +206,10 @@ class AdminAPIRouter:
         health_plugin = plugin_manager.get_plugin("healthcheck")
 
         if health_plugin:
-            health: dict[str, Any] = await health_plugin.run_checks()  # type: ignore[attr-defined]
-            return health
+            checker = getattr(health_plugin, "run_checks", None)
+            if checker is not None:
+                health: dict[str, Any] = await checker()
+                return health
         return {"status": "unknown"}
 
     async def get_config(self, request: Any) -> dict[str, Any]:
