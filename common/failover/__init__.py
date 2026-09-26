@@ -90,7 +90,9 @@ class HealthChecker(ABC):
     """Abstract health checker."""
 
     @abstractmethod
-    async def check(self, service_name: str, region: str) -> HealthCheckResult:
+    async def check(
+        self, service_name: str, region: str, endpoint: str
+    ) -> HealthCheckResult:
         """Perform health check."""
         pass
 
@@ -100,7 +102,7 @@ class HealthChecker(ABC):
         pass
 
 
-class HTTPHealthChecker:
+class HTTPHealthChecker(HealthChecker):
     """HTTP-based health checker."""
 
     def __init__(self, timeout_ms: int = 5000):
@@ -359,6 +361,11 @@ class FailoverManager:
             self._monitor_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._monitor_task
+        if self._failback_timer:
+            self._failback_timer.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._failback_timer
+            self._failback_timer = None
         await self.health_checker.close()
         logger.info(f"Failover manager stopped for service: {self.config.service_name}")
 
@@ -426,7 +433,12 @@ class FailoverManager:
                 if should_failback:
                     await self._perform_failback(health_results)
 
-    async def _perform_failover(self, target_region: str, health_results: dict[str, "HealthCheckResult"]) -> None:
+    async def _perform_failover(
+        self,
+        target_region: str,
+        health_results: dict[str, "HealthCheckResult"],
+        trigger: FailoverTrigger = FailoverTrigger.HEALTH_CHECK_FAILURE,
+    ) -> None:
         """Perform failover to target region."""
         logger.warning(f"Initiating failover from {self._current_region} to {target_region}")
 
@@ -435,9 +447,9 @@ class FailoverManager:
 
         event = FailoverEvent(
             service_name=self.config.service_name,
-            trigger=FailoverTrigger.HEALTH_CHECK_FAILURE,
+            trigger=trigger,
             from_region=self._current_region,
-            to_region=self.config.backup_regions[0],  # Simplified
+            to_region=target_region,
             timestamp=datetime.utcnow(),
         )
 
@@ -511,6 +523,8 @@ class FailoverManager:
             self._state = FailoverStatus.FAILOVER_FAILED
             event.success = False
             event.error_message = str(e)
+            event.duration_ms = int((time.time() - start_time) * 1000)
+            self._failover_events.append(event)
             logger.error(f"Failback failed: {e}")
 
     def _schedule_failback(self) -> None:
@@ -574,7 +588,7 @@ class FailoverManager:
             capacity_used=1.0,
         )}
 
-        await self._perform_failover(target_region, health_results)
+        await self._perform_failover(target_region, health_results, trigger=FailoverTrigger.MANUAL)
         return True
 
     async def force_failback(self) -> bool:
@@ -625,7 +639,7 @@ def create_failover_manager(
         backup_regions=backup_regions,
         **config_kwargs
     )
-    manager = FailoverManager(config)
+    manager = FailoverManager(config, health_checker=health_checker, policy=policy)
     _failover_managers[service_name] = manager
     return manager
 
