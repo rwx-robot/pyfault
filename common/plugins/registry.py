@@ -33,6 +33,8 @@ class PluginRegistry:
         self._plugin_classes[plugin_name] = plugin_class
         self._metadata[plugin_name] = temp_instance.metadata
         self._dependency_graph[plugin_name] = set(temp_instance.metadata.dependencies)
+        # Invalidate the cached load order so the new plugin is included.
+        self._load_order = []
 
         return plugin_name
 
@@ -74,17 +76,24 @@ class PluginRegistry:
         """Get plugin load order (respecting dependencies)."""
         if not self._load_order:
             self._load_order = self._calculate_load_order()
-        return self._load_order
+        # Return a copy: callers must not be able to mutate the cached order.
+        return list(self._load_order)
 
     def _calculate_load_order(self) -> list[str]:
-        """Calculate load order using topological sort."""
-        # Kahn's algorithm for topological sorting
-        in_degree = {name: 0 for name in self._dependency_graph}
+        """Calculate load order using topological sort (dependencies first).
 
-        for _name, deps in self._dependency_graph.items():
+        Kahn's algorithm: a plugin with unmet dependencies only becomes
+        available once every dependency has been emitted.
+        """
+        in_degree = {name: 0 for name in self._dependency_graph}
+        dependents: dict[str, list[str]] = {name: [] for name in self._dependency_graph}
+
+        for name, deps in self._dependency_graph.items():
             for dep in deps:
                 if dep in in_degree:
-                    in_degree[dep] += 1
+                    # dep must be loaded before name
+                    in_degree[name] += 1
+                    dependents[dep].append(name)
 
         queue = [name for name, degree in in_degree.items() if degree == 0]
         result = []
@@ -93,11 +102,10 @@ class PluginRegistry:
             name = queue.pop(0)
             result.append(name)
 
-            for dep in self._dependency_graph.get(name, set()):
-                if dep in in_degree:
-                    in_degree[dep] -= 1
-                    if in_degree[dep] == 0:
-                        queue.append(dep)
+            for dependent in dependents[name]:
+                in_degree[dependent] -= 1
+                if in_degree[dependent] == 0:
+                    queue.append(dependent)
 
         if len(result) != len(self._dependency_graph):
             # Circular dependency detected, fallback to alphabetical
