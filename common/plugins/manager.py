@@ -77,6 +77,11 @@ class PluginManager:
 
         # Filter and order plugins
         plugins_to_load = plugin_names or list(self._registry._plugin_classes.keys())
+        for name in plugins_to_load:
+            if name not in self._registry._plugin_classes:
+                # Explicitly requested plugins must exist; silently dropping
+                # them would make typos look like successful loads.
+                raise ValueError(f"Plugin '{name}' not registered")
         plugins_to_load = [p for p in load_order if p in plugins_to_load]
 
         for name in plugins_to_load:
@@ -269,6 +274,12 @@ class PluginManager:
         if name not in self._plugins:
             return False
 
+        # Resolve the class first: reloading must not destroy the current
+        # instance when the class is no longer registered.
+        plugin_class = self._registry.get_plugin_class(name)
+        if plugin_class is None:
+            return False
+
         plugin = self._plugins[name]
 
         # Stop and unload
@@ -284,9 +295,6 @@ class PluginManager:
 
         # Reload
         config = self._config.get(name, {})
-        plugin_class = self._registry.get_plugin_class(name)
-        if plugin_class is None:
-            return False
         new_plugin = plugin_class(config)
 
         if self._app:
