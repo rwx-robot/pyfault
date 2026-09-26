@@ -9,6 +9,7 @@ Provides service discovery across regions with:
 """
 
 import logging
+import math
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -104,12 +105,20 @@ class ServiceInstance:
     def health_score(self) -> float:
         if not self.healthy:
             return 0.0
-        # Weighted health score
-        score = 1.0
-        score *= (1.0 - min(self.error_rate, 1.0))
-        score *= (1.0 - min(self.cpu_usage, 1.0)) * 0.3
-        score *= (1.0 - min(self.memory_usage, 1.0)) * 0.2
-        score *= (1.0 - min(self.avg_latency_ms / 1000.0, 1.0)) * 0.2
+        # Weighted geometric mean of 0..1 quality factors: a perfect
+        # instance scores 1.0, and each factor keeps its own scale.
+        # (The previous multiplicative constants capped a perfect score
+        # at 0.012, which made health negligible in CompositeStrategy.)
+        error_factor = 1.0 - min(self.error_rate, 1.0)
+        cpu_factor = 1.0 - min(self.cpu_usage, 1.0)
+        memory_factor = 1.0 - min(self.memory_usage, 1.0)
+        latency_factor = 1.0 - min(self.avg_latency_ms / 1000.0, 1.0)
+        score = (
+            error_factor
+            * math.pow(cpu_factor, 0.3)
+            * math.pow(memory_factor, 0.2)
+            * math.pow(latency_factor, 0.2)
+        )
         return max(0.0, min(1.0, score))
 
 
@@ -211,6 +220,11 @@ class RegionAwareDiscovery:
     ) -> list[ServiceInstance]:
         """Discover service instances."""
         cache_key = f"{service_name}:{preferred_region}:{strategy}"
+        # Filters change the result set, so they must be part of the cache
+        # key; otherwise a second discover() with different filters would
+        # be served the first call's filtered results.
+        if filters:
+            cache_key += f":{filters!r}"
 
         # Check cache
         if cache_key in self._cache:
