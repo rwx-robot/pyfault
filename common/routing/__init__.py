@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Awaitable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Callable, Optional, TypeVar
 
@@ -156,7 +156,12 @@ class LatencyBasedRoutingStrategy(RoutingStrategyBase):
 
         latency = await self._latency_provider(from_region, to_region)
         self._latency_cache[cache_key] = latency
-        self._cache_expiry[cache_key] = datetime.utcnow().replace(second=0, microsecond=0)
+        # Expire at the start of the next minute. The previous code stored
+        # the start of the *current* minute, which is always in the past,
+        # so the cache never produced a hit.
+        self._cache_expiry[cache_key] = datetime.utcnow().replace(
+            second=0, microsecond=0
+        ) + timedelta(minutes=1)
         return latency
 
     async def select_target(
