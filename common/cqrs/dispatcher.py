@@ -153,7 +153,9 @@ class IdempotencyMiddleware(CommandMiddleware):
     """Middleware for command idempotency."""
 
     def __init__(self, store: Optional[dict] = None):
-        self._processed = store or {}
+        # Keep the caller's dict when provided (even if empty) so results
+        # can be inspected or shared from outside.
+        self._processed = store if store is not None else {}
 
     async def execute(self, command: "Command", next_handler: Callable[..., Awaitable[CommandResult]]) -> "CommandResult":
         # Check if command was already processed

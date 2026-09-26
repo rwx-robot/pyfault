@@ -72,17 +72,17 @@ class LoggingMiddleware:
         start = time.time()
 
         msg_type = "Command" if hasattr(message, 'command_id') else "Query"
-        print(f"[{msg_type}] {type(message).__name__} [{getattr(message, 'command_id', getattr(message, 'query_id', 'unknown'))}] - START")
+        self.logger(f"[{msg_type}] {type(message).__name__} [{getattr(message, 'command_id', getattr(message, 'query_id', 'unknown'))}] - START")
 
         try:
             result = await next_handler(message)
             duration = (time.time() - start) * 1000
             status = "SUCCESS" if getattr(result, 'success', True) else "FAILED"
-            print(f"[{msg_type}] {type(message).__name__} [{getattr(message, 'command_id', getattr(message, 'query_id', 'unknown'))}] - {status} ({duration:.2f}ms)")
+            self.logger(f"[{msg_type}] {type(message).__name__} [{getattr(message, 'command_id', getattr(message, 'query_id', 'unknown'))}] - {status} ({duration:.2f}ms)")
             return result
         except Exception as e:
             duration = (time.time() - start) * 1000
-            print(f"[{type(message).__name__}] {type(message).__name__} - ERROR ({duration:.2f}ms): {e}")
+            self.logger(f"[{type(message).__name__}] {type(message).__name__} - ERROR ({duration:.2f}ms): {e}")
             raise
 
 
@@ -144,7 +144,9 @@ class IdempotencyMiddleware:
     """Middleware for command idempotency."""
 
     def __init__(self, store: Optional[dict] = None):
-        self._processed = store or {}
+        # Keep the caller's dict when provided (even if empty) so results
+        # can be inspected or shared from outside.
+        self._processed = store if store is not None else {}
 
     async def execute(self, command: Any, next_handler: Callable) -> Any:
         # Check if command was already processed

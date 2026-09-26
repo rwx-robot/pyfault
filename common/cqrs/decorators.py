@@ -133,7 +133,6 @@ def create_command_handler(
                 for validator in validators:
                     errors = await validator(command) if asyncio.iscoroutinefunction(validator) else validator(command)
                     if errors:
-                        from pyfault.common.cqrs.command import CommandResult
                         return CommandResult(
                             success=False,
                             command_id=command.command_id,
