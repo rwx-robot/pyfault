@@ -94,9 +94,9 @@ class LatencyTracker:
         )
         self._samples.append(sample)
 
-        # Trim window
-        if len(self._samples) > 10000:  # Hard limit
-            self._samples = self._samples[-10000:]
+        # Trim window to the configured size
+        if len(self._samples) > self.window_size:
+            self._samples = self._samples[-self.window_size:]
 
     def get_stats(self, operation: Optional[str] = None, since: Optional[datetime] = None) -> LatencyStats:
         """Get latency statistics."""
@@ -137,7 +137,8 @@ class LatencyTracker:
 
         # Calculate percentiles
         for p in ["p50", "p75", "p90", "p95", "p99", "p999"]:
-            percentile = float(p[1:]) / 100
+            # p999 means the 99.9th percentile, not 999/100.
+            percentile = 0.999 if p == "p999" else float(p[1:]) / 100
             index = int(len(latencies) * percentile)
             stats.percentiles[p] = latencies[min(index, len(latencies) - 1)]
 
@@ -167,7 +168,7 @@ class LatencyTracker:
             )
 
             for p in ["p50", "p75", "p90", "p95", "p99", "p999"]:
-                percentile = float(p[1:]) / 100
+                percentile = 0.999 if p == "p999" else float(p[1:]) / 100
                 index = int(len(latencies) * percentile)
                 stats.percentiles[p] = latencies[min(index, len(latencies) - 1)]
 
@@ -201,7 +202,7 @@ class LatencyTrackerManager:
     def record(self, tracker_name: str, operation: str, latency_ms: float, success: bool = True, tags: Optional[dict[str, str]] = None) -> None:
         """Record a latency sample."""
         tracker = self.get_tracker(tracker_name)
-        tracker.record(operation, latency_ms, success)
+        tracker.record(operation, latency_ms, success, tags)
 
     def get_stats(self, tracker_name: str, operation: Optional[str] = None) -> "LatencyStats":
         """Get stats for a tracker."""
@@ -266,6 +267,7 @@ class LatencyTimer:
             operation=self.operation,
             latency_ms=latency_ms,
             success=success,
+            tags=self.tags,
         )
 
 
@@ -326,7 +328,7 @@ class LatencyBudgetManager:
         alert_threshold: float = 0.8,
     ) -> LatencyBudget:
         """Set a latency budget for an operation."""
-        budget = LatencyBudget(operation, budget_ms, percentile, 0.8)
+        budget = LatencyBudget(operation, budget_ms, percentile, alert_threshold)
         self._budgets[operation] = budget
         return budget
 
@@ -344,8 +346,8 @@ class LatencyBudgetManager:
     def record_latency(self, operation: str, latency_ms: float) -> None:
         """Record a latency measurement."""
         budget = self._budgets.get(operation)
-        if budget:
-            budget.check(latency_ms)
+        if budget and budget.check(latency_ms):
+            budget.record_violation(latency_ms)
 
     def get_violations(self) -> list[dict[str, Any]]:
         """Get all budget violations."""
@@ -379,10 +381,17 @@ def record_latency(
     latency_ms: float,
     tracker_name: str = "default",
     success: bool = True,
+    tags: Optional[dict[str, str]] = None,
 ) -> None:
     """Record a latency sample."""
     manager = get_latency_manager()
-    manager.record(tracker_name=tracker_name, operation=operation, latency_ms=latency_ms)
+    manager.record(
+        tracker_name=tracker_name,
+        operation=operation,
+        latency_ms=latency_ms,
+        success=success,
+        tags=tags,
+    )
 
 
 def set_latency_budget(
@@ -393,7 +402,7 @@ def set_latency_budget(
 ) -> "LatencyBudget":
     """Set a latency budget for an operation."""
     manager = get_budget_manager()
-    return manager.set_budget(operation, budget_ms, percentile, 0.8)
+    return manager.set_budget(operation, budget_ms, percentile, alert_threshold)
 
 
 def check_latency_budget(operation: str, latency_ms: float) -> bool:
@@ -408,29 +417,49 @@ def latency_timer(tracker_name: str, operation: Optional[str] = None) -> Latency
     return LatencyTimer(tracker_name, operation or tracker_name)
 
 
-def timed(tracker_name: str, operation: Optional[str] = None) -> Callable[..., Any]:
+def timed(tracker_name: str, operation: Optional[str] = None, tags: Optional[dict[str, str]] = None) -> Callable[..., Any]:
     """Decorator to time a function."""
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         op_name = operation or func.__name__
 
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             start = time.perf_counter()
+            success = True
             try:
                 result = await func(*args, **kwargs)
                 return result
+            except BaseException:
+                success = False
+                raise
             finally:
                 latency_ms = (time.perf_counter() - start) * 1000
-                record_latency(tracker_name="default", operation=tracker_name or op_name, latency_ms=latency_ms)
+                record_latency(
+                    tracker_name=tracker_name,
+                    operation=op_name,
+                    latency_ms=latency_ms,
+                    success=success,
+                    tags=tags,
+                )
 
         @wraps(func)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             start = time.perf_counter()
+            success = True
             try:
                 result = func(*args, **kwargs)
                 return result
+            except BaseException:
+                success = False
+                raise
             finally:
                 latency_ms = (time.perf_counter() - start) * 1000
-                record_latency(tracker_name=tracker_name, operation=func.__name__, latency_ms=latency_ms)
+                record_latency(
+                    tracker_name=tracker_name,
+                    operation=op_name,
+                    latency_ms=latency_ms,
+                    success=success,
+                    tags=tags,
+                )
 
         if asyncio.iscoroutinefunction(func):
             return async_wrapper
