@@ -28,26 +28,34 @@ def query_handler(query_type: type) -> Callable:
     return decorator
 
 
-def command(command_type: type) -> Callable:
-    """Decorator for creating command classes."""
-    def decorator(cls: Any) -> Any:
+def command(cls: Optional[type] = None, *, command_type: Optional[type] = None) -> Callable[..., Any]:
+    """Decorator for creating command classes (usable bare: ``@command``)."""
+    def decorator(target: type) -> type:
         from dataclasses import dataclass
-        cls = dataclass(cls)
-        if not issubclass(cls, Command):
+        if "__dataclass_fields__" not in target.__dict__:
+            target = dataclass(target)
+        if not issubclass(target, Command):
             raise TypeError("Command class must inherit from Command")
-        return cls
-    return decorator
+        return target
+
+    if cls is None:
+        return decorator
+    return decorator(cls)
 
 
-def query(query_type: type) -> Callable:
-    """Decorator for creating query classes."""
-    def decorator(cls: Any) -> Any:
+def query(cls: Optional[type] = None, *, query_type: Optional[type] = None) -> Callable[..., Any]:
+    """Decorator for creating query classes (usable bare: ``@query``)."""
+    def decorator(target: type) -> type:
         from dataclasses import dataclass
-        cls = dataclass(cls)
-        if not issubclass(cls, Query):
+        if "__dataclass_fields__" not in target.__dict__:
+            target = dataclass(target)
+        if not issubclass(target, Query):
             raise TypeError("Query class must inherit from Query")
-        return cls
-    return decorator
+        return target
+
+    if cls is None:
+        return decorator
+    return decorator(cls)
 
 
 def handles(command_or_query_type: type) -> Callable:

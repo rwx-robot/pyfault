@@ -57,6 +57,9 @@ class Command:
         self.causation_id = causation_id or self.command_id
         self.timestamp = timestamp or datetime.utcnow()
         self.metadata = metadata or {}
+        # Apply subclass fields passed as keyword arguments
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
     def __post_init__(self) -> None:
         if not self.causation_id:
@@ -213,8 +216,9 @@ class CommandBus:
 def command(cls: Optional[type] = None, *, command_type: Optional[type[Command]] = None) -> Callable[..., Any]:
     """Decorator for creating command classes."""
     def decorator(cls: type) -> type:
-        # Check if already a dataclass
-        if not hasattr(cls, '__dataclass_fields__'):
+        # Only skip when THIS class declares its own fields
+        # (hasattr would match fields inherited from the Command base)
+        if "__dataclass_fields__" not in cls.__dict__:
             cls = dataclass(cls)
         # Ensure it inherits from Command
         if not issubclass(cls, Command):

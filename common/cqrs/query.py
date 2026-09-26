@@ -24,6 +24,7 @@ Q = TypeVar("Q", bound="Query")
 R = TypeVar("R")
 
 
+@dataclass
 class Query:
     """
     Base query class.
@@ -48,6 +49,9 @@ class Query:
         self.correlation_id = correlation_id
         self.timestamp = timestamp or datetime.utcnow()
         self.metadata = metadata or {}
+        # Apply subclass fields passed as keyword arguments
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
     def validate(self) -> list[str]:
         """Validate the query. Return list of validation errors."""
@@ -227,14 +231,19 @@ class PaginatedQueryResult(Generic[R]):
         }
 
 
-def query(query_type: type) -> Callable[..., Any]:
-    """Decorator for creating query classes."""
-    def decorator(cls: type) -> type:
-        cls = dataclass(cls)
-        if not issubclass(cls, Query):
+def query(cls: Optional[type] = None, *, query_type: Optional[type[Query]] = None) -> Callable[..., Any]:
+    """Decorator for creating query classes (usable bare: ``@query``)."""
+    def decorator(target: type) -> type:
+        # Only skip when THIS class declares its own fields
+        if "__dataclass_fields__" not in target.__dict__:
+            target = dataclass(target)
+        if not issubclass(target, Query):
             raise TypeError("Query class must inherit from Query")
-        return cls
-    return decorator
+        return target
+
+    if cls is None:
+        return decorator
+    return decorator(cls)
 
 
 # Built-in queries

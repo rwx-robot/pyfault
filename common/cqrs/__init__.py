@@ -20,7 +20,6 @@ from pyfault.common.cqrs.decorators import (
     emits,
     get_handler_registry,
     handles,
-    query,
     query_handler,
     register_handler,
     requires,
@@ -50,6 +49,7 @@ from pyfault.common.cqrs.query import (
     QueryResult,
     QueryStatus,
     SearchEntitiesQuery,
+    query,
 )
 
 __all__ = [
