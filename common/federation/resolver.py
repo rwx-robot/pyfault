@@ -2,18 +2,24 @@
 Federation Resolver for PyFault framework.
 """
 
+import inspect
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 
 @dataclass
 class EntityReference:
-    """Reference to a federated entity."""
-    __typename: str
-    __reference: dict[str, Any] = field(default_factory=dict)
+    """Reference to a federated entity.
 
-    def __post_init__(self) -> None:
-        self.__reference = {k: v for k, v in self.__dict__.items() if k != "__typename"}
+    ``to_dict()`` renders the standard federation representation:
+    ``{"__typename": <typename>, **reference}``.
+    """
+
+    typename: str
+    reference: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"__typename": self.typename, **self.reference}
 
 
 @dataclass
@@ -61,8 +67,9 @@ class FederatedObjectType:
         return self
 
     def add_key(self, fields: list[str]) -> "FederatedObjectType":
-        """Add a key for this entity."""
-        self.keys.append(fields)
+        """Add a key for this entity (duplicate keys are ignored)."""
+        if fields not in self.keys:
+            self.keys.append(fields)
         return self
 
     def set_resolver(self, field_name: str, resolver: Callable) -> "FederatedObjectType":
@@ -128,19 +135,24 @@ class FederationResolver:
         return self._reference_resolvers.get(type_name)
 
     async def resolve_entity(self, type_name: str, reference: dict[str, Any]) -> Optional[dict]:
-        """Resolve an entity by its reference."""
+        """Resolve an entity by its reference (sync resolvers supported)."""
         resolver = self._reference_resolvers.get(type_name)
         if resolver:
-            resolved: Optional[dict[str, Any]] = await resolver(reference)
-            return resolved
+            resolved: Any = resolver(reference)
+            if inspect.isawaitable(resolved):
+                resolved = await resolved
+            return cast(Optional[dict[str, Any]], resolved)
         return None
 
     async def resolve_field(self, type_name: str, field_name: str, source: Any,
                           args: dict[str, Any], context: Any) -> Any:
-        """Resolve a field value."""
+        """Resolve a field value (sync resolvers supported)."""
         resolver = self._resolvers.get(f"{type_name}.{field_name}")
         if resolver:
-            return await resolver(source, context)
+            result = resolver(source, context)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
         return None
 
     def get_key_fields(self, type_name: str) -> list[list[str]]:
@@ -158,46 +170,89 @@ def create_federation_resolver() -> FederationResolver:
 
 # Decorators for defining federated types
 def federated_type(name: str, keys: Optional[list[list[str]]] = None, extends: bool = False) -> Callable[..., Any]:
-    """Decorator for creating federated types."""
+    """Decorator for creating federated types.
+
+    The collected ``FederatedObjectType`` is attached to the class as
+    ``cls._federation_type`` so it can be inspected or registered.
+    """
     def decorator(cls: Any) -> Any:
         type_obj = FederatedObjectType(
             name=name,
-            keys=keys or [],
+            keys=[list(k) for k in (keys or [])],
             extends=extends,
         )
         # Register fields from class
         for attr_name in dir(cls):
-            if not attr_name.startswith("_"):
-                attr = getattr(cls, attr_name)
-                if callable(attr) and hasattr(attr, "_federated_field"):
-                    field_info = attr._federated_field
-                    type_obj.add_field(
-                        name=field_info["name"] or attr_name,
-                        field_type=field_info["type"],
-                        resolver=attr,
-                        external=field_info.get("external", False),
-                        requires=field_info.get("requires", []),
-                        provides=field_info.get("provides", []),
-                    )
-                elif callable(attr) and hasattr(attr, "_federated_key"):
-                    for key_fields in attr._federated_key:
-                        type_obj.add_key(key_fields)
+            if attr_name.startswith("_"):
+                continue
+            attr = getattr(cls, attr_name)
+            if not callable(attr):
+                continue
+            if hasattr(attr, "_federated_field"):
+                field_info = attr._federated_field
+                type_obj.add_field(
+                    name=field_info.get("name") or attr_name,
+                    field_type=field_info.get("type", "String"),
+                    resolver=attr,
+                    external=field_info.get("external", False),
+                    requires=list(field_info.get("requires") or []),
+                    provides=list(field_info.get("provides") or []),
+                )
+            if hasattr(attr, "_federated_key"):
+                raw_keys = attr._federated_key
+                if raw_keys and isinstance(raw_keys[0], (list, tuple)):
+                    # nested: each element is one composite key
+                    for key_fields in raw_keys:
+                        type_obj.add_key(list(key_fields))
+                else:
+                    # flat: one call declares one composite key
+                    type_obj.add_key(list(raw_keys))
 
+        cls._federation_type = type_obj
         return cls
     return decorator
 
 
+# Python return annotations -> GraphQL type names for @federated_field
+_PY_TO_GQL = {
+    str: "String",
+    int: "Int",
+    float: "Float",
+    bool: "Boolean",
+}
+
+
+def _annotation_to_gql_type(annotation: Any, fallback: str = "String") -> str:
+    """Coerce a return annotation into a GraphQL type name."""
+    if isinstance(annotation, str):
+        return annotation
+    if annotation in _PY_TO_GQL:
+        return _PY_TO_GQL[annotation]
+    name = getattr(annotation, "__name__", None)
+    return name or fallback
+
+
 def federated_field(name: Optional[str] = None, type: Optional[str] = None, external: bool = False,
                    requires: Optional[list[str]] = None, provides: Optional[list[str]] = None) -> Callable[..., Any]:
-    """Decorator for federated fields."""
+    """Decorator for federated fields.
+
+    Merges with metadata set by sibling decorators (``@federated_requires``,
+    ``@federated_provides``, ``@federated_external``) instead of overwriting
+    it, so decorator stacking order does not lose information.
+    """
     def decorator(func: Any) -> Any:
-        func._federated_field = {
-            "name": name or func.__name__,
-            "type": type or func.__annotations__.get("return", "String"),
-            "external": external,
-            "requires": requires or [],
-            "provides": provides or [],
-        }
+        info: dict[str, Any] = dict(getattr(func, "_federated_field", None) or {})
+        info["name"] = name or func.__name__
+        if type is not None:
+            info["type"] = type
+        elif "type" not in info:
+            info["type"] = _annotation_to_gql_type(
+                func.__annotations__.get("return")
+            )
+        info["external"] = bool(external or info.get("external", False))
+        info["requires"] = list(requires if requires is not None else info.get("requires") or [])
+        info["provides"] = list(provides if provides is not None else info.get("provides") or [])
+        func._federated_field = info
         return func
     return decorator
 

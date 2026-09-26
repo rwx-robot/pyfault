@@ -11,9 +11,39 @@ from graphql import (
     GraphQLList,
     GraphQLNonNull,
     GraphQLObjectType,
+    GraphQLScalarType,
     GraphQLSchema,
     GraphQLString,
     GraphQLUnionType,
+    print_schema,
+)
+from graphql.utilities import value_from_ast_untyped
+
+
+def _any_scalar_identity(value: Any) -> Any:
+    return value
+
+
+def _any_scalar_parse_literal(node: Any, variables: Optional[dict] = None) -> Any:
+    return value_from_ast_untyped(node, variables)
+
+
+#: Federation ``_Any`` scalar: accepts arbitrary JSON (entity representations).
+#: Apollo Federation defines ``_Any`` as a scalar — NOT an input object (an
+#: input object cannot carry arbitrary key fields like ``id``).
+ANY_SCALAR = GraphQLScalarType(
+    name="_Any",
+    description="Federation representation object (arbitrary JSON)",
+    serialize=_any_scalar_identity,
+    parse_value=_any_scalar_identity,
+    parse_literal=_any_scalar_parse_literal,
+)
+
+#: Root/introspection type names that must not be merged verbatim from
+#: service schemas (the federated schema defines its own ``Query`` —
+#: including a second ``Query`` instance makes the schema invalid).
+_RESERVED_TYPE_NAMES = frozenset(
+    {"Query", "Mutation", "Subscription", "_Entity", "_Service", "_Any"}
 )
 
 
@@ -59,7 +89,8 @@ class FederationSchema:
         if self._schema:
             return self._schema
 
-        # Collect all types from services
+        # Collect all types from services (skip root/introspection types:
+        # merging a second "Query" instance would make the schema invalid)
         all_types = {}
         entity_types = set()
 
@@ -68,6 +99,11 @@ class FederationSchema:
             if schema:
                 self._service_schemas[service["name"]] = schema
                 for type_name, type_def in schema.type_map.items():
+                    if (
+                        type_name.startswith("__")
+                        or type_name in _RESERVED_TYPE_NAMES
+                    ):
+                        continue
                     if type_name not in all_types:
                         all_types[type_name] = type_def
 
@@ -125,44 +161,9 @@ class FederationSchema:
     ) -> GraphQLSchema:
         """Build the final federated schema."""
 
-        # Add federation root fields to query
-        query_fields = {}
-
-        # _entities query
-        if entity_types:
-            query_fields["_entities"] = GraphQLField(
-                GraphQLList(GraphQLNonNull(GraphQLString)),
-                args={
-                    "representations": GraphQLArgument(
-                        GraphQLNonNull(GraphQLList(GraphQLNonNull(GraphQLString)))
-                    ),
-                },
-                description="Fetches entities by their representations",
-            )
-
-        # _service query
-        query_fields["_service"] = GraphQLField(
-            GraphQLString,
-            description="Returns the SDL for this service",
-        )
-
-        # Create query type
-        query_type = GraphQLObjectType(
-            name="Query",
-            fields=query_fields,
-        )
-
-        # Create _Entity union if we have entities
         types = list(all_types.values())
-        if self._entity_types:
-            entity_union = GraphQLUnionType(
-                name="_Entity",
-                types=[t for t in all_types.values() if t.name in entity_types],
-                resolve_type=lambda obj, info, t: obj.get("__typename"),
-            )
-            types.append(entity_union)
 
-        # Add _Service type
+        # _Service type (Apollo federation: _service { sdl })
         service_type = GraphQLObjectType(
             name="_Service",
             fields={
@@ -171,6 +172,62 @@ class FederationSchema:
         )
         types.append(service_type)
 
+        # _Entity union if we have entities (must exist before _entities
+        # references it; per federation spec _entities returns [_Entity])
+        entity_union: Optional[GraphQLUnionType] = None
+        if entity_types:
+            entity_union = GraphQLUnionType(
+                name="_Entity",
+                types=[t for t in all_types.values() if t.name in entity_types],
+                resolve_type=lambda obj, info, t: (
+                    obj.get("__typename")
+                    if isinstance(obj, dict)
+                    else getattr(obj, "__typename", None)
+                ),
+            )
+            types.append(entity_union)
+
+        # Federation root fields
+        query_fields: dict[str, Any] = {}
+
+        if entity_union is not None:
+            query_fields["_entities"] = GraphQLField(
+                GraphQLNonNull(GraphQLList(entity_union)),
+                args={
+                    "representations": GraphQLArgument(
+                        GraphQLNonNull(
+                            GraphQLList(GraphQLNonNull(ANY_SCALAR))
+                        )
+                    ),
+                },
+                description="Fetches entities by their representations",
+                # FederationSchema only builds schema structure — entity
+                # fetching belongs to the gateway/resolver layer. Return an
+                # empty list instead of null (the field is non-null).
+                resolve=lambda *_args, **_kwargs: [],
+            )
+
+        query_fields["_service"] = GraphQLField(
+            service_type,
+            description="Returns the SDL for this service",
+            resolve=self._resolve_service_field,
+        )
+
+        # Migrate service query fields (first service wins on collisions)
+        for service in self.config.services:
+            schema = service.get("schema")
+            if schema is None or schema.query_type is None:
+                continue
+            for field_name, field_def in schema.query_type.fields.items():
+                if field_name not in query_fields:
+                    query_fields[field_name] = field_def
+
+        # Create query type
+        query_type = GraphQLObjectType(
+            name="Query",
+            fields=query_fields,
+        )
+
         # Add federation directives: GraphQLSchema defaults to the built-in
         # specified directives; custom federation directives can be added here.
         return GraphQLSchema(
@@ -178,14 +235,33 @@ class FederationSchema:
             types=types,
         )
 
+    def _resolve_service_field(self, obj: Any, info: Any) -> dict[str, str]:
+        """Resolver for the _service root field."""
+        if self.config.schema_sdl:
+            return {"sdl": self.config.schema_sdl}
+        parts = []
+        for service in self.config.services:
+            name = service.get("name", "")
+            sdl = self.get_service_sdl(name)
+            if sdl:
+                parts.append(f"# Service: {name}\n{sdl}")
+        return {"sdl": "\n".join(parts)}
+
     def get_entity_types(self) -> set[str]:
         """Get all entity type names."""
         return self._entity_types
 
     def get_service_sdl(self, service_name: str) -> Optional[str]:
-        """Get SDL for a specific service."""
-        # Generate SDL for a service
-        return ""
+        """Get SDL for a specific service (None if unknown / not a schema)."""
+        schema = self._service_schemas.get(service_name)
+        if schema is None:
+            for svc in self.config.services:
+                if svc.get("name") == service_name:
+                    schema = svc.get("schema")
+                    break
+        if not isinstance(schema, GraphQLSchema):
+            return None
+        return print_schema(schema)
 
     def get_combined_sdl(self) -> str:
         """Get combined SDL for all services."""
