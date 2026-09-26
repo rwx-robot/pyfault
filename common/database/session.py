@@ -2,9 +2,10 @@
 Database Session Management for PyFault framework.
 """
 
+import asyncio
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager, contextmanager
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.ext.asyncio import (
@@ -14,6 +15,29 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import Session, sessionmaker
+
+_ASYNC_URL_DRIVERS = {
+    "postgresql": "postgresql+asyncpg",
+    "mysql": "mysql+aiomysql",
+    "sqlite": "sqlite+aiosqlite",
+}
+
+
+def _to_async_url(url: str) -> str:
+    """Rewrite a sync-style database URL to its async-driver equivalent.
+
+    Handles bare schemes (``postgresql://``) as well as sync-driver
+    variants (``postgresql+psycopg2://``); URLs already using an async
+    driver are returned unchanged.
+    """
+    prefix, sep, rest = url.partition("://")
+    if not sep:
+        return url
+    scheme = prefix.split("+", 1)[0]
+    target = _ASYNC_URL_DRIVERS.get(scheme)
+    if target is None or prefix == target:
+        return url
+    return f"{target}{sep}{rest}"
 
 
 class SessionManager:
@@ -39,42 +63,53 @@ class SessionManager:
         self._async_engine: Optional[AsyncEngine] = None
         self._sync_session_factory: Optional[sessionmaker[Session]] = None
         self._async_session_factory: Optional[async_sessionmaker[AsyncSession]] = None
+        self._async_close_task: Optional[asyncio.Task[None]] = None
 
     @property
     def sync_engine(self) -> Engine:
         """Get or create synchronous engine."""
         if self._sync_engine is None:
-            self._sync_engine = create_engine(
-                self.url,
-                echo=self.echo,
-                pool_size=self.pool_size,
-                max_overflow=self.max_overflow,
-                pool_timeout=self.pool_timeout,
-                pool_recycle=self.pool_recycle,
-            )
+            kwargs: dict[str, Any] = {
+                "echo": self.echo,
+                "pool_size": self.pool_size,
+                "max_overflow": self.max_overflow,
+                "pool_timeout": self.pool_timeout,
+                "pool_recycle": self.pool_recycle,
+            }
+            try:
+                self._sync_engine = create_engine(self.url, **kwargs)
+            except TypeError:
+                # sqlite:///:memory: uses SingletonThreadPool, which
+                # rejects pool sizing arguments — keep only pool_recycle.
+                self._sync_engine = create_engine(
+                    self.url,
+                    echo=self.echo,
+                    pool_recycle=self.pool_recycle,
+                )
         return self._sync_engine
 
     @property
     def async_engine(self) -> AsyncEngine:
         """Get or create asynchronous engine."""
         if self._async_engine is None:
-            # Convert sync URL to async if needed
-            async_url = self.url
-            if async_url.startswith("postgresql://"):
-                async_url = async_url.replace("postgresql://", "postgresql+asyncpg://")
-            elif async_url.startswith("mysql://"):
-                async_url = async_url.replace("mysql://", "mysql+aiomysql://")
-            elif async_url.startswith("sqlite://"):
-                async_url = async_url.replace("sqlite://", "sqlite+aiosqlite://")
-
-            self._async_engine = create_async_engine(
-                async_url,
-                echo=self.echo,
-                pool_size=self.pool_size,
-                max_overflow=self.max_overflow,
-                pool_timeout=self.pool_timeout,
-                pool_recycle=self.pool_recycle,
-            )
+            async_url = _to_async_url(self.url)
+            kwargs: dict[str, Any] = {
+                "echo": self.echo,
+                "pool_size": self.pool_size,
+                "max_overflow": self.max_overflow,
+                "pool_timeout": self.pool_timeout,
+                "pool_recycle": self.pool_recycle,
+            }
+            try:
+                self._async_engine = create_async_engine(async_url, **kwargs)
+            except TypeError:
+                # sqlite+aiosqlite uses StaticPool, which rejects pool
+                # sizing arguments — keep only pool_recycle.
+                self._async_engine = create_async_engine(
+                    async_url,
+                    echo=self.echo,
+                    pool_recycle=self.pool_recycle,
+                )
         return self._async_engine
 
     @property
@@ -137,8 +172,18 @@ class SessionManager:
         if self._sync_engine:
             self._sync_engine.dispose()
         if self._async_engine:
-            import asyncio
-            asyncio.create_task(self._async_engine.dispose())
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # AsyncEngine.dispose() requires a running event loop;
+                # fall back to disposing the underlying sync engine so
+                # connections are released synchronously.
+                self._async_engine.sync_engine.dispose()
+            else:
+                # Keep a reference so the task is not garbage-collected.
+                self._async_close_task = loop.create_task(
+                    self._async_engine.dispose()
+                )
 
 
 # Global session manager instance
