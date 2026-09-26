@@ -2,16 +2,23 @@
 Region-aware routing for PyFault framework.
 """
 
+import inspect
 import random
 import time
 from abc import ABC, abstractmethod
+from collections import defaultdict
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Type, TypeVar
-from collections import defaultdict
+from typing import Any, Callable, Optional, TypeVar
 
-from pyfault.common.region import Region, RegionManager, RegionStatus, get_region_manager
+from pyfault.common.region import (
+    Region,
+    RegionManager,
+    RegionStatus,
+    get_region_manager,
+)
 
 T = TypeVar("T")
 
@@ -33,7 +40,7 @@ class RouteTarget:
     endpoint: str
     weight: int = 1
     healthy: bool = True
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def effective_weight(self) -> int:
@@ -46,8 +53,8 @@ class RoutingContext:
     region_id: Optional[str] = None
     user_id: Optional[str] = None
     session_id: Optional[str] = None
-    headers: Dict[str, str] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class RoutingStrategyBase(ABC):
@@ -56,7 +63,7 @@ class RoutingStrategyBase(ABC):
     @abstractmethod
     async def select_target(
         self,
-        targets: List[RouteTarget],
+        targets: list[RouteTarget],
         context: RoutingContext,
     ) -> Optional[RouteTarget]:
         """Select a target from the available targets."""
@@ -68,7 +75,7 @@ class RandomRoutingStrategy(RoutingStrategyBase):
 
     async def select_target(
         self,
-        targets: List[RouteTarget],
+        targets: list[RouteTarget],
         context: RoutingContext,
     ) -> Optional[RouteTarget]:
         healthy_targets = [t for t in targets if t.healthy and t.effective_weight > 0]
@@ -80,12 +87,12 @@ class RandomRoutingStrategy(RoutingStrategyBase):
 class RoundRobinRoutingStrategy(RoutingStrategyBase):
     """Round-robin routing strategy."""
 
-    def __init__(self):
-        self._counters: Dict[str, int] = defaultdict(int)
+    def __init__(self) -> None:
+        self._counters: dict[str, int] = defaultdict(int)
 
     async def select_target(
         self,
-        targets: List[RouteTarget],
+        targets: list[RouteTarget],
         context: RoutingContext,
     ) -> Optional[RouteTarget]:
         healthy_targets = [t for t in targets if t.healthy and t.effective_weight > 0]
@@ -103,7 +110,7 @@ class WeightedRoutingStrategy(RoutingStrategyBase):
 
     async def select_target(
         self,
-        targets: List[RouteTarget],
+        targets: list[RouteTarget],
         context: RoutingContext,
     ) -> Optional[RouteTarget]:
         healthy_targets = [t for t in targets if t.healthy and t.effective_weight > 0]
@@ -126,10 +133,10 @@ class WeightedRoutingStrategy(RoutingStrategyBase):
 class LatencyBasedRoutingStrategy(RoutingStrategyBase):
     """Latency-based routing strategy."""
 
-    def __init__(self, latency_provider: Optional[Callable[[str, str], float]] = None):
+    def __init__(self, latency_provider: Optional[Callable[[str, str], Awaitable[float]]] = None) -> None:
         self._latency_provider = latency_provider or self._default_latency_provider
-        self._latency_cache: Dict[str, float] = {}
-        self._cache_expiry: Dict[str, datetime] = {}
+        self._latency_cache: dict[str, float] = {}
+        self._cache_expiry: dict[str, datetime] = {}
 
     async def _default_latency_provider(self, from_region: str, to_region: str) -> float:
         """Default latency provider - returns simulated latency."""
@@ -139,12 +146,14 @@ class LatencyBasedRoutingStrategy(RoutingStrategyBase):
     async def get_latency(self, from_region: str, to_region: str) -> float:
         """Get latency between regions."""
         cache_key = f"{from_region}:{to_region}"
-        now = datetime.utcnow()
-        
-        if cache_key in self._latency_cache:
-            if cache_key in self._cache_expiry and self._cache_expiry[cache_key] > datetime.utcnow():
-                return self._latency_cache[cache_key]
-        
+
+        if (
+            cache_key in self._latency_cache
+            and cache_key in self._cache_expiry
+            and self._cache_expiry[cache_key] > datetime.utcnow()
+        ):
+            return self._latency_cache[cache_key]
+
         latency = await self._latency_provider(from_region, to_region)
         self._latency_cache[cache_key] = latency
         self._cache_expiry[cache_key] = datetime.utcnow().replace(second=0, microsecond=0)
@@ -152,7 +161,7 @@ class LatencyBasedRoutingStrategy(RoutingStrategyBase):
 
     async def select_target(
         self,
-        targets: List[RouteTarget],
+        targets: list[RouteTarget],
         context: RoutingContext,
     ) -> Optional[RouteTarget]:
         healthy_targets = [t for t in targets if t.healthy and t.effective_weight > 0]
@@ -161,7 +170,7 @@ class LatencyBasedRoutingStrategy(RoutingStrategyBase):
 
         source_region = context.region_id or "unknown"
         latencies = {}
-        
+
         for target in healthy_targets:
             # Extract region from target endpoint or metadata
             target_region = target.metadata.get("region", "unknown")
@@ -170,11 +179,11 @@ class LatencyBasedRoutingStrategy(RoutingStrategyBase):
 
         # Select target with lowest latency
         if latencies:
-            best_region = min(latencies, key=latencies.get)
+            best_region = min(latencies, key=lambda region: latencies[region])
             for target in healthy_targets:
                 if target.region_id == best_region:
                     return target
-        
+
         return random.choice(healthy_targets)
 
 
@@ -183,7 +192,7 @@ class RegionAffinityRoutingStrategy(RoutingStrategyBase):
 
     async def select_target(
         self,
-        targets: List[RouteTarget],
+        targets: list[RouteTarget],
         context: RoutingContext,
     ) -> Optional[RouteTarget]:
         healthy_targets = [t for t in targets if t.healthy and t.effective_weight > 0]
@@ -203,15 +212,24 @@ class RegionAffinityRoutingStrategy(RoutingStrategyBase):
 class CustomRoutingStrategy(RoutingStrategyBase):
     """Custom routing strategy with user-defined logic."""
 
-    def __init__(self, selector: Callable[[List[RouteTarget], RoutingContext], Optional[RouteTarget]]):
+    def __init__(
+        self,
+        selector: Callable[
+            [list[RouteTarget], RoutingContext],
+            Optional[RouteTarget] | Awaitable[Optional[RouteTarget]],
+        ],
+    ) -> None:
         self._selector = selector
 
     async def select_target(
         self,
-        targets: List[RouteTarget],
+        targets: list[RouteTarget],
         context: RoutingContext,
     ) -> Optional[RouteTarget]:
-        return await self._selector(targets, context)
+        selected = self._selector(targets, context)
+        if inspect.isawaitable(selected):
+            return await selected
+        return selected
 
 
 class RegionAwareRouter:
@@ -221,9 +239,9 @@ class RegionAwareRouter:
 
     def __init__(self, region_manager: Optional[RegionManager] = None):
         self.region_manager = region_manager or get_region_manager()
-        self._strategies: Dict[str, RoutingStrategyBase] = {}
+        self._strategies: dict[str, RoutingStrategyBase] = {}
         self._default_strategy = RoutingStrategy.LATENCY_BASED
-        self._service_routes: Dict[str, List[RouteTarget]] = defaultdict(list)
+        self._service_routes: dict[str, list[RouteTarget]] = defaultdict(list)
 
         # Register default strategies
         self._strategies[RoutingStrategy.RANDOM] = RandomRoutingStrategy()
@@ -263,7 +281,7 @@ class RegionAwareRouter:
         context = context or RoutingContext()
         strategy_name = strategy or self._default_strategy
         strategy_impl = self._strategies.get(strategy_name)
-        
+
         if not strategy_impl:
             raise ValueError(f"Unknown routing strategy: {strategy_name}")
 
@@ -273,7 +291,7 @@ class RegionAwareRouter:
 
         return await strategy_impl.select_target(list(targets), context)
 
-    def get_available_targets(self, service: str) -> List[RouteTarget]:
+    def get_available_targets(self, service: str) -> list[RouteTarget]:
         """Get all available targets for a service."""
         return list(self._service_routes.get(service, []))
 

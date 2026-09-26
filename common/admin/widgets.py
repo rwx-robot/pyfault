@@ -2,10 +2,10 @@
 Dashboard Widgets for PyFault Admin UI.
 """
 
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
-from datetime import datetime
+from typing import Any
 
 
 @dataclass
@@ -16,9 +16,9 @@ class WidgetConfig:
     type: str
     width: int = 6  # 1-12 grid columns
     height: int = 4  # height units
-    position: Dict[str, int] = field(default_factory=dict)  # x, y
+    position: dict[str, int] = field(default_factory=dict)  # x, y
     refresh_interval: int = 30  # seconds
-    config: Dict[str, Any] = field(default_factory=dict)
+    config: dict[str, Any] = field(default_factory=dict)
 
 
 class BaseWidget(ABC):
@@ -61,7 +61,7 @@ class BaseWidget(ABC):
     def get_last_update(self) -> float:
         return self._last_update
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert widget to dict for serialization."""
         return {
             "id": self.id,
@@ -77,9 +77,6 @@ class BaseWidget(ABC):
         }
 
 
-import time
-
-
 class MetricWidget(BaseWidget):
     """Widget for displaying a single metric value."""
 
@@ -89,23 +86,23 @@ class MetricWidget(BaseWidget):
         self._format = config.config.get("format", "number")  # number, percent, bytes, duration
         self._thresholds = config.config.get("thresholds", {})
 
-    async def fetch_data(self) -> Dict[str, Any]:
+    async def fetch_data(self) -> dict[str, Any]:
         from pyfault.common.plugins import get_plugin_manager
         plugin_manager = get_plugin_manager()
         metrics_plugin = plugin_manager.get_plugin("metrics")
-        
+
         if not metrics_plugin:
             return {"value": None, "error": "Metrics plugin not available"}
-        
-        metrics = metrics_plugin.get_metrics()
+
+        metrics = metrics_plugin.get_metrics()  # type: ignore[attr-defined]
         value = metrics.get(self._metric_name)
-        
+
         if value is None:
             return {"value": None, "error": "Metric not found"}
-        
+
         # Format value
         formatted = self._format_value(value)
-        
+
         # Check thresholds
         status = "normal"
         if self._thresholds:
@@ -113,7 +110,7 @@ class MetricWidget(BaseWidget):
                 status = "critical"
             elif value >= self._thresholds.get("warning", float('inf')):
                 status = "warning"
-        
+
         return {
             "value": value,
             "formatted": formatted,
@@ -172,17 +169,17 @@ class ChartWidget(BaseWidget):
         self._time_range = config.config.get("time_range", 3600)  # seconds
         self._max_points = config.config.get("max_points", 100)
 
-    async def fetch_data(self) -> Dict[str, Any]:
+    async def fetch_data(self) -> dict[str, Any]:
         from pyfault.common.plugins import get_plugin_manager
         plugin_manager = get_plugin_manager()
         metrics_plugin = plugin_manager.get_plugin("metrics")
-        
+
         if not metrics_plugin:
             return {"series": [], "error": "Metrics plugin not available"}
-        
-        metrics = metrics_plugin.get_metrics()
+
+        metrics = metrics_plugin.get_metrics()  # type: ignore[attr-defined]
         series = []
-        
+
         for metric_name in self._metric_names:
             if metric_name in metrics:
                 # In a real implementation, this would fetch historical data
@@ -192,19 +189,19 @@ class ChartWidget(BaseWidget):
                     "name": metric_name,
                     "data": points,
                 })
-        
+
         return {
             "series": series,
             "chart_type": self._chart_type,
             "time_range": self._time_range,
         }
 
-    def _generate_mock_series(self, current_value: float) -> List[Dict[str, Any]]:
+    def _generate_mock_series(self, current_value: float) -> list[dict[str, Any]]:
         """Generate mock time series data."""
         import random
         points = []
         base_time = time.time() - self._time_range
-        
+
         for i in range(self._max_points):
             t = base_time + (i * self._time_range / self._max_points)
             # Add some variation
@@ -213,7 +210,7 @@ class ChartWidget(BaseWidget):
                 "timestamp": t,
                 "value": max(0, current_value + variation),
             })
-        
+
         return points
 
 
@@ -227,7 +224,7 @@ class TableWidget(BaseWidget):
         self._sortable = config.config.get("sortable", True)
         self._page_size = config.config.get("page_size", 10)
 
-    async def fetch_data(self) -> Dict[str, Any]:
+    async def fetch_data(self) -> dict[str, Any]:
         if self._data_source == "plugins":
             return await self._fetch_plugins()
         elif self._data_source == "tenants":
@@ -236,10 +233,10 @@ class TableWidget(BaseWidget):
             return await self._fetch_metrics()
         return {"columns": [], "rows": []}
 
-    async def _fetch_plugins(self) -> Dict[str, Any]:
+    async def _fetch_plugins(self) -> dict[str, Any]:
         from pyfault.common.plugins import get_plugin_manager
         plugin_manager = get_plugin_manager()
-        
+
         rows = []
         for name, plugin in plugin_manager.get_all_plugins().items():
             rows.append({
@@ -248,7 +245,7 @@ class TableWidget(BaseWidget):
                 "version": plugin.metadata.version if plugin.metadata else "unknown",
                 "description": plugin.metadata.description if plugin.metadata else "",
             })
-        
+
         return {
             "columns": [
                 {"key": "name", "title": "Name", "sortable": True},
@@ -260,21 +257,21 @@ class TableWidget(BaseWidget):
             "total": len(rows),
         }
 
-    async def _fetch_tenants(self) -> Dict[str, Any]:
+    async def _fetch_tenants(self) -> dict[str, Any]:
         # Would integrate with tenant manager
         return {"columns": [], "rows": [], "total": 0}
 
-    async def _fetch_metrics(self) -> Dict[str, Any]:
+    async def _fetch_metrics(self) -> dict[str, Any]:
         from pyfault.common.plugins import get_plugin_manager
         plugin_manager = get_plugin_manager()
         metrics_plugin = plugin_manager.get_plugin("metrics")
-        
+
         if not metrics_plugin:
             return {"columns": [], "rows": []}
-        
-        metrics = metrics_plugin.get_metrics()
+
+        metrics = metrics_plugin.get_metrics()  # type: ignore[attr-defined]
         rows = []
-        
+
         for name, data in metrics.items():
             if isinstance(data, dict) and "count" in data:
                 rows.append({
@@ -283,7 +280,7 @@ class TableWidget(BaseWidget):
                     "avg_time": f"{data['total_time']/data['count']:.3f}s" if data['count'] > 0 else "N/A",
                     "errors": data.get("errors", 0),
                 })
-        
+
         return {
             "columns": [
                 {"key": "metric", "title": "Metric", "sortable": True},
@@ -305,26 +302,26 @@ class LogWidget(BaseWidget):
         self._level_filter = config.config.get("level_filter", [])
         self._source_filter = config.config.get("source_filter", [])
 
-    async def fetch_data(self) -> Dict[str, Any]:
+    async def fetch_data(self) -> dict[str, Any]:
         from pyfault.common.plugins import get_plugin_manager
         plugin_manager = get_plugin_manager()
         audit_plugin = plugin_manager.get_plugin("audit")
-        
+
         if not audit_plugin:
             return {"logs": [], "error": "Audit plugin not available"}
-        
-        logs = audit_plugin.get_logs()
-        
+
+        logs = audit_plugin.get_logs()  # type: ignore[attr-defined]
+
         # Apply filters
         if self._level_filter:
-            logs = [l for l in logs if l.get("level") in self._level_filter]
-        
+            logs = [entry for entry in logs if entry.get("level") in self._level_filter]
+
         if self._source_filter:
-            logs = [l for l in logs if l.get("source") in self._source_filter]
-        
+            logs = [entry for entry in logs if entry.get("source") in self._source_filter]
+
         # Limit lines
         logs = logs[-self._max_lines:]
-        
+
         return {
             "logs": logs,
             "total": len(logs),
@@ -340,15 +337,15 @@ class PluginCardWidget(BaseWidget):
         self._show_actions = config.config.get("show_actions", True)
         self._filter_state = config.config.get("filter_state", [])
 
-    async def fetch_data(self) -> Dict[str, Any]:
+    async def fetch_data(self) -> dict[str, Any]:
         from pyfault.common.plugins import get_plugin_manager
         plugin_manager = get_plugin_manager()
-        
+
         cards = []
         for name, plugin in plugin_manager.get_all_plugins().items():
             if self._filter_state and plugin.state.value not in self._filter_state:
                 continue
-            
+
             cards.append({
                 "name": name,
                 "display_name": plugin.metadata.name if plugin.metadata else name,
@@ -358,7 +355,7 @@ class PluginCardWidget(BaseWidget):
                 "author": plugin.metadata.author if plugin.metadata else "",
                 "keywords": plugin.metadata.keywords if plugin.metadata else [],
             })
-        
+
         return {
             "cards": cards,
             "total": len(cards),
@@ -374,9 +371,9 @@ def create_widget(config: WidgetConfig) -> BaseWidget:
         "log": LogWidget,
         "plugin_card": PluginCardWidget,
     }
-    
+
     widget_class = widget_types.get(config.type)
     if not widget_class:
         raise ValueError(f"Unknown widget type: {config.type}")
-    
-    return widget_class(config)
+
+    return widget_class(config)  # type: ignore[abstract]

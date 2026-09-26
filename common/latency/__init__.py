@@ -3,17 +3,17 @@ Latency Optimization for PyFault framework.
 """
 
 import asyncio
-import time
+import heapq
+import random
 import statistics
+import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar
-from collections import defaultdict
-import random
-import heapq
+from functools import wraps
+from typing import Any, Callable, Optional, TypeVar
 
 T = TypeVar("T")
 
@@ -34,7 +34,7 @@ class LatencySample:
     operation: str
     latency_ms: float
     timestamp: datetime = field(default_factory=datetime.utcnow)
-    tags: Dict[str, str] = field(default_factory=dict)
+    tags: dict[str, str] = field(default_factory=dict)
     success: bool = True
 
 
@@ -47,12 +47,12 @@ class LatencyStats:
     mean_ms: float = 0.0
     median_ms: float = 0.0
     std_dev_ms: float = 0.0
-    percentiles: Dict[str, float] = field(default_factory=dict)
+    percentiles: dict[str, float] = field(default_factory=dict)
     error_count: int = 0
     error_rate: float = 0.0
     throughput_per_sec: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "count": self.count,
             "min_ms": self.min_ms,
@@ -75,16 +75,16 @@ class LatencyTracker:
     def __init__(
         self,
         window_size: int = 10000,
-        percentile_buckets: List[str] = None,
+        percentile_buckets: Optional[list[str]] = None,
     ):
         self.window_size = window_size
         self.percentile_buckets = percentile_buckets or [
             "p50", "p75", "p90", "p95", "p99", "p999"
         ]
-        self._samples: List[LatencySample] = []
+        self._samples: list[LatencySample] = []
         self._lock = asyncio.Lock()
 
-    def record(self, operation: str, latency_ms: float, success: bool = True, tags: Dict[str, str] = None) -> None:
+    def record(self, operation: str, latency_ms: float, success: bool = True, tags: Optional[dict[str, str]] = None) -> None:
         """Record a latency sample."""
         sample = LatencySample(
             operation=operation,
@@ -93,7 +93,7 @@ class LatencyTracker:
             tags=tags or {},
         )
         self._samples.append(sample)
-        
+
         # Trim window
         if len(self._samples) > 10000:  # Hard limit
             self._samples = self._samples[-10000:]
@@ -101,29 +101,29 @@ class LatencyTracker:
     def get_stats(self, operation: Optional[str] = None, since: Optional[datetime] = None) -> LatencyStats:
         """Get latency statistics."""
         samples = self._samples
-        
+
         if operation:
             samples = [s for s in samples if s.operation == operation]
-        
+
         if since:
             samples = [s for s in samples if s.timestamp >= since]
-        
+
         if not samples:
             return LatencyStats()
-        
+
         latencies = [s.latency_ms for s in samples if s.success]
         errors = [s for s in samples if not s.success]
-        
+
         if not latencies:
             return LatencyStats(
                 count=len(samples),
                 error_count=len(errors),
                 error_rate=len(errors) / len(samples) if samples else 0.0,
             )
-        
+
         latencies.sort()
         count = len(latencies)
-        
+
         stats = LatencyStats(
             count=count,
             min_ms=latencies[0],
@@ -134,27 +134,27 @@ class LatencyTracker:
             error_count=len([s for s in samples if not s.success]),
             error_rate=len([s for s in samples if not s.success]) / len(samples) if samples else 0.0,
         )
-        
+
         # Calculate percentiles
         for p in ["p50", "p75", "p90", "p95", "p99", "p999"]:
             percentile = float(p[1:]) / 100
             index = int(len(latencies) * percentile)
             stats.percentiles[p] = latencies[min(index, len(latencies) - 1)]
-        
+
         return stats
 
-    def get_operation_stats(self) -> Dict[str, LatencyStats]:
+    def get_operation_stats(self) -> dict[str, LatencyStats]:
         """Get stats grouped by operation."""
         operations = defaultdict(list)
         for sample in self._samples:
             operations[sample.operation].append(sample)
-        
+
         result = {}
         for op, samples in operations.items():
             latencies = [s.latency_ms for s in samples if s.success]
             if not latencies:
                 continue
-            
+
             latencies.sort()
             count = len(latencies)
             stats = LatencyStats(
@@ -165,21 +165,21 @@ class LatencyTracker:
                 median_ms=statistics.median(latencies),
                 std_dev_ms=statistics.stdev(latencies) if count > 1 else 0.0,
             )
-            
+
             for p in ["p50", "p75", "p90", "p95", "p99", "p999"]:
                 percentile = float(p[1:]) / 100
                 index = int(len(latencies) * percentile)
                 stats.percentiles[p] = latencies[min(index, len(latencies) - 1)]
-            
+
             result[op] = stats
-        
+
         return result
 
     def clear(self) -> None:
         """Clear all samples."""
         self._samples.clear()
 
-    def get_recent_samples(self, limit: int = 100) -> List[LatencySample]:
+    def get_recent_samples(self, limit: int = 100) -> list[LatencySample]:
         """Get recent samples."""
         return self._samples[-limit:]
 
@@ -189,8 +189,8 @@ class LatencyTrackerManager:
     Manages multiple latency trackers for different services/operations.
     """
 
-    def __init__(self):
-        self._trackers: Dict[str, LatencyTracker] = {}
+    def __init__(self) -> None:
+        self._trackers: dict[str, LatencyTracker] = {}
 
     def get_tracker(self, name: str) -> LatencyTracker:
         """Get or create a latency tracker."""
@@ -198,7 +198,7 @@ class LatencyTrackerManager:
             self._trackers[name] = LatencyTracker()
         return self._trackers[name]
 
-    def record(self, tracker_name: str, operation: str, latency_ms: float, success: bool = True, tags: Dict[str, str] = None) -> None:
+    def record(self, tracker_name: str, operation: str, latency_ms: float, success: bool = True, tags: Optional[dict[str, str]] = None) -> None:
         """Record a latency sample."""
         tracker = self.get_tracker(tracker_name)
         tracker.record(operation, latency_ms, success)
@@ -210,7 +210,7 @@ class LatencyTrackerManager:
             return LatencyStats()
         return tracker.get_stats(operation)
 
-    def get_all_stats(self) -> Dict[str, Dict[str, "LatencyStats"]]:
+    def get_all_stats(self) -> dict[str, dict[str, "LatencyStats"]]:
         """Get stats for all trackers."""
         result = {}
         for name, tracker in self._trackers.items():
@@ -237,21 +237,6 @@ def get_latency_manager() -> "LatencyTrackerManager":
     return _latency_manager
 
 
-_latency_manager: Optional["LatencyTrackerManager"] = None
-
-
-def record_latency(
-    tracker_name: str,
-    operation: str,
-    latency_ms: float,
-    success: bool = True,
-    tags: Dict[str, str] = None,
-) -> None:
-    """Record a latency sample."""
-    manager = get_latency_manager()
-    manager.record(tracker_name, operation, latency_ms, success)
-
-
 # Context manager for timing operations
 class LatencyTimer:
     """Context manager for timing operations."""
@@ -261,20 +246,20 @@ class LatencyTimer:
         tracker_name: str,
         operation: str,
         success: bool = True,
-        tags: Dict[str, str] = None,
+        tags: Optional[dict[str, str]] = None,
     ):
         self.tracker_name = tracker_name
         self.operation = operation
         self.success = success
         self.tags = tags or {}
-        self.start_time = None
+        self.start_time: Optional[float] = None
 
-    def __enter__(self):
+    def __enter__(self) -> "LatencyTimer":
         self.start_time = time.perf_counter()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        latency_ms = (time.perf_counter() - self.start_time) * 1000
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        latency_ms = (time.perf_counter() - (self.start_time or 0.0)) * 1000
         success = exc_type is None
         record_latency(
             tracker_name=self.tracker_name,
@@ -282,79 +267,9 @@ class LatencyTimer:
             latency_ms=latency_ms,
             success=success,
         )
-        return False
-
-
-def latency_timer(tracker_name: str, operation: str, success: bool = True, tags: Dict[str, str] = None):
-    """Context manager for timing operations."""
-    return LatencyTimer(tracker_name, operation, True)
 
 
 # Decorator for timing functions
-def timed(tracker_name: str, operation: str = None, tags: Dict[str, str] = None):
-    """Decorator to time a function."""
-    def decorator(func):
-        op_name = operation or func.__name__
-        
-        @wraps(func)
-        async def async_wrapper(*args, **kwargs):
-            start = time.perf_counter()
-            success = True
-            try:
-                result = await func(*args, **kwargs)
-                return result
-            except Exception as e:
-                latency_ms = (time.perf_counter() - start) * 1000
-                record_latency(
-                    tracker_name=tracker_name,
-                    operation=op_name,
-                    latency_ms=latency_ms,
-                    success=False,
-                )
-                raise
-            else:
-                latency_ms = (time.perf_counter() - start) * 1000
-                record_latency(
-                    tracker_name=tracker_name,
-                    operation=op_name,
-                    latency_ms=latency_ms,
-                    success=True,
-                )
-                return result
-        
-        @wraps(func)
-        def sync_wrapper(*args, **kwargs):
-            start = time.perf_counter()
-            success = True
-            try:
-                result = func(*args, **kwargs)
-                return result
-            except Exception as e:
-                latency_ms = (time.perf_counter() - start) * 1000
-                record_latency(
-                    tracker_name=tracker_name,
-                    operation=op_name,
-                    latency_ms=latency_ms,
-                    success=False,
-                )
-                raise
-            else:
-                latency_ms = (time.perf_counter() - start) * 1000
-                record_latency(
-                    tracker_name=tracker_name,
-                    operation=op_name,
-                    latency_ms=latency_ms,
-                    success=True,
-                )
-                return result
-        
-        if asyncio.iscoroutinefunction(func):
-            return async_wrapper
-        return sync_wrapper
-
-    return decorator
-
-
 # Latency budgets and alerts
 class LatencyBudget:
     """Latency budget for operations."""
@@ -387,7 +302,7 @@ class LatencyBudget:
         self._last_alert = datetime.utcnow()
         return self._violations > 10  # Alert after 10 violations
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         return {
             "operation": self.operation,
             "budget_ms": self.budget_ms,
@@ -400,8 +315,8 @@ class LatencyBudget:
 class LatencyBudgetManager:
     """Manages latency budgets for operations."""
 
-    def __init__(self):
-        self._budgets: Dict[str, LatencyBudget] = {}
+    def __init__(self) -> None:
+        self._budgets: dict[str, LatencyBudget] = {}
 
     def set_budget(
         self,
@@ -432,11 +347,11 @@ class LatencyBudgetManager:
         if budget:
             budget.check(latency_ms)
 
-    def get_violations(self) -> List[Dict[str, Any]]:
+    def get_violations(self) -> list[dict[str, Any]]:
         """Get all budget violations."""
         return [b.get_status() for b in self._budgets.values() if b._violations > 0]
 
-    def clear_violations(self, operation: str = None) -> None:
+    def clear_violations(self, operation: Optional[str] = None) -> None:
         """Clear violations."""
         if operation:
             if operation in self._budgets:
@@ -487,19 +402,18 @@ def check_latency_budget(operation: str, latency_ms: float) -> bool:
     return manager.check_latency(operation, latency_ms)
 
 
-def latency_timer(tracker_name: str, operation: str = None):
+def latency_timer(tracker_name: str, operation: Optional[str] = None) -> LatencyTimer:
     """Context manager for timing operations."""
     from pyfault.common.latency import LatencyTimer
-    op = operation or "unknown"
-    return LatencyTimer(tracker_name, operation)
+    return LatencyTimer(tracker_name, operation or tracker_name)
 
 
-def timed(tracker_name: str, operation: str = None):
+def timed(tracker_name: str, operation: Optional[str] = None) -> Callable[..., Any]:
     """Decorator to time a function."""
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         op_name = operation or func.__name__
-        
-        async def async_wrapper(*args, **kwargs):
+
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             start = time.perf_counter()
             try:
                 result = await func(*args, **kwargs)
@@ -507,9 +421,9 @@ def timed(tracker_name: str, operation: str = None):
             finally:
                 latency_ms = (time.perf_counter() - start) * 1000
                 record_latency(tracker_name="default", operation=tracker_name or op_name, latency_ms=latency_ms)
-        
+
         @wraps(func)
-        def sync_wrapper(*args, **kwargs):
+        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             start = time.perf_counter()
             try:
                 result = func(*args, **kwargs)
@@ -517,7 +431,7 @@ def timed(tracker_name: str, operation: str = None):
             finally:
                 latency_ms = (time.perf_counter() - start) * 1000
                 record_latency(tracker_name=tracker_name, operation=func.__name__, latency_ms=latency_ms)
-        
+
         if asyncio.iscoroutinefunction(func):
             return async_wrapper
         return sync_wrapper

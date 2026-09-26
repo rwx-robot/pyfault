@@ -4,20 +4,20 @@ Configuration Module for PyFault framework.
 
 import json
 import os
-from typing import Any
+from typing import Any, Optional
 
 
 class ConfigManager:
     """Configuration manager for PyFault."""
 
-    def __init__(self, config_path: str = None):
+    def __init__(self, config_path: Optional[str] = None) -> None:
         self._config: dict[str, Any] = {}
         self._config_path = config_path
 
         if config_path:
             self.load(config_path)
 
-    def load(self, path: str):
+    def load(self, path: str) -> None:
         """Load configuration from file."""
         self._config_path = path
 
@@ -28,6 +28,8 @@ class ConfigManager:
             # Load Python config file
             import importlib.util
             spec = importlib.util.spec_from_file_location("config", path)
+            if spec is None or spec.loader is None:
+                raise ValueError(f"Cannot load Python config file: {path}")
             config_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(config_module)
 
@@ -48,7 +50,7 @@ class ConfigManager:
 
         return value
 
-    def set(self, key: str, value: Any):
+    def set(self, key: str, value: Any) -> None:
         """Set configuration value."""
         keys = key.split('.')
         config = self._config
@@ -76,7 +78,7 @@ class ConfigManager:
 class ConfigModule:
     """Config module for dependency injection."""
 
-    def __init__(self, config_path: str = None):
+    def __init__(self, config_path: Optional[str] = None) -> None:
         self.manager = ConfigManager(config_path)
 
     def get_manager(self) -> ConfigManager:

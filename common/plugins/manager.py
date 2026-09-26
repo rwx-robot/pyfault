@@ -2,10 +2,10 @@
 Plugin Manager for PyFault framework.
 """
 
-from typing import Any, Dict, List, Optional, Type
 import asyncio
+from typing import Any, Optional
 
-from pyfault.common.plugins.base import BasePlugin, PluginMetadata, PluginState
+from pyfault.common.plugins.base import BasePlugin, PluginState
 from pyfault.common.plugins.registry import PluginRegistry, get_plugin_registry
 
 
@@ -14,8 +14,8 @@ class PluginModule:
 
     def __init__(
         self,
-        plugins: List[str] = None,
-        config: Dict[str, Dict[str, Any]] = None,
+        plugins: Optional[list[str]] = None,
+        config: Optional[dict[str, dict[str, Any]]] = None,
         auto_load: bool = True,
         auto_start: bool = True,
     ):
@@ -30,21 +30,21 @@ class PluginManager:
     Manages plugin lifecycle: load, initialize, start, stop, unload.
     """
 
-    def __init__(self, app=None, registry: PluginRegistry = None):
+    def __init__(self, app: Any = None, registry: Optional[PluginRegistry] = None) -> None:
         self._app = app
         self._registry = registry or get_plugin_registry()
-        self._plugins: Dict[str, BasePlugin] = {}
-        self._config: Dict[str, Dict[str, Any]] = {}
+        self._plugins: dict[str, BasePlugin] = {}
+        self._config: dict[str, dict[str, Any]] = {}
         self._module: Optional[PluginModule] = None
         self._initialized = False
 
-    def set_app(self, app):
+    def set_app(self, app: Any) -> None:
         """Set the application instance."""
         self._app = app
         for plugin in self._plugins.values():
             plugin.set_app(app)
 
-    def set_container(self, container):
+    def set_container(self, container: Any) -> None:
         """Set the dependency injection container."""
         for plugin in self._plugins.values():
             plugin.set_container(container)
@@ -70,7 +70,7 @@ class PluginManager:
 
         return self
 
-    async def load_plugins(self, plugin_names: List[str] = None) -> Dict[str, bool]:
+    async def load_plugins(self, plugin_names: Optional[list[str]] = None) -> dict[str, bool]:
         """Load plugins by name."""
         results = {}
         load_order = self._registry.get_load_order()
@@ -120,7 +120,7 @@ class PluginManager:
 
         return True
 
-    async def initialize_plugins(self, plugin_names: List[str] = None) -> Dict[str, bool]:
+    async def initialize_plugins(self, plugin_names: Optional[list[str]] = None) -> dict[str, bool]:
         """Initialize loaded plugins."""
         results = {}
         load_order = self._registry.get_load_order()
@@ -137,14 +137,14 @@ class PluginManager:
             try:
                 await plugin.initialize()
                 results[name] = True
-            except Exception as e:
+            except Exception:
                 plugin._state = PluginState.ERROR
                 results[name] = False
 
         self._initialized = all(results.values())
         return results
 
-    async def start_plugins(self, plugin_names: List[str] = None) -> Dict[str, bool]:
+    async def start_plugins(self, plugin_names: Optional[list[str]] = None) -> dict[str, bool]:
         """Start initialized plugins."""
         results = {}
         load_order = self._registry.get_load_order()
@@ -161,13 +161,13 @@ class PluginManager:
             try:
                 await plugin.start()
                 results[name] = True
-            except Exception as e:
+            except Exception:
                 plugin._state = PluginState.ERROR
                 results[name] = False
 
         return results
 
-    async def stop_plugins(self, plugin_names: List[str] = None) -> Dict[str, bool]:
+    async def stop_plugins(self, plugin_names: Optional[list[str]] = None) -> dict[str, bool]:
         """Stop running plugins."""
         results = {}
         # Reverse load order for stopping
@@ -186,13 +186,13 @@ class PluginManager:
             try:
                 await plugin.stop()
                 results[name] = True
-            except Exception as e:
+            except Exception:
                 plugin._state = PluginState.ERROR
                 results[name] = False
 
         return results
 
-    async def unload_plugins(self, plugin_names: List[str] = None) -> Dict[str, bool]:
+    async def unload_plugins(self, plugin_names: Optional[list[str]] = None) -> dict[str, bool]:
         """Unload plugins."""
         results = {}
         # Reverse load order for unloading
@@ -216,7 +216,7 @@ class PluginManager:
                 del self._plugins[name]
                 if name in self._registry._plugins:
                     del self._registry._plugins[name]
-            except Exception as e:
+            except Exception:
                 plugin._state = PluginState.ERROR
                 results[name] = False
 
@@ -226,7 +226,7 @@ class PluginManager:
         """Get plugin instance by name."""
         return self._plugins.get(name)
 
-    def get_all_plugins(self) -> Dict[str, BasePlugin]:
+    def get_all_plugins(self) -> dict[str, BasePlugin]:
         """Get all loaded plugins."""
         return self._plugins.copy()
 
@@ -240,7 +240,7 @@ class PluginManager:
         plugin = self._plugins.get(name)
         return plugin.is_running if plugin else False
 
-    def get_plugin_info(self, name: str) -> Optional[Dict[str, Any]]:
+    def get_plugin_info(self, name: str) -> Optional[dict[str, Any]]:
         """Get plugin information."""
         plugin = self._plugins.get(name)
         metadata = self._registry.get_metadata(name)
@@ -248,7 +248,7 @@ class PluginManager:
         if not plugin and not metadata:
             return None
 
-        info = {}
+        info: dict[str, Any] = {}
         if metadata:
             info["metadata"] = {
                 "name": metadata.name,
@@ -285,6 +285,8 @@ class PluginManager:
         # Reload
         config = self._config.get(name, {})
         plugin_class = self._registry.get_plugin_class(name)
+        if plugin_class is None:
+            return False
         new_plugin = plugin_class(config)
 
         if self._app:
@@ -299,7 +301,7 @@ class PluginManager:
 
         return True
 
-    def update_config(self, name: str, config: Dict[str, Any]) -> bool:
+    def update_config(self, name: str, config: dict[str, Any]) -> bool:
         """Update plugin configuration."""
         plugin = self._plugins.get(name)
         if not plugin:
@@ -330,11 +332,12 @@ class PluginManager:
 
         return True
 
-    def get_all_plugins_info(self) -> List[Dict[str, Any]]:
+    def get_all_plugins_info(self) -> list[dict[str, Any]]:
         """Get info for all plugins."""
-        return [self.get_plugin_info(name) for name in self._plugins]
+        infos = [self.get_plugin_info(name) for name in self._plugins]
+        return [info for info in infos if info is not None]
 
-    async def shutdown(self):
+    async def shutdown(self) -> None:
         """Shutdown all plugins gracefully."""
         await self.stop_plugins()
         await self.unload_plugins()
@@ -346,7 +349,7 @@ class PluginManager:
 _plugin_manager: Optional[PluginManager] = None
 
 
-def get_plugin_manager(app=None) -> PluginManager:
+def get_plugin_manager(app: Any = None) -> PluginManager:
     """Get global plugin manager."""
     global _plugin_manager
     if _plugin_manager is None:
@@ -356,7 +359,7 @@ def get_plugin_manager(app=None) -> PluginManager:
     return _plugin_manager
 
 
-def set_plugin_manager(manager: PluginManager):
+def set_plugin_manager(manager: PluginManager) -> None:
     """Set global plugin manager."""
     global _plugin_manager
     _plugin_manager = manager

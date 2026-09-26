@@ -2,18 +2,15 @@
 Federation Directives for PyFault framework.
 """
 
-from typing import Any, Dict, List
+from typing import Any
 
 from graphql import (
-    GraphQLDirective,
+    DirectiveLocation,
     GraphQLArgument,
+    GraphQLDirective,
     GraphQLNonNull,
     GraphQLString,
-    GraphQLList,
-    GraphQLBoolean,
-    DirectiveLocation,
 )
-
 
 # @key directive - specifies the key fields for an entity
 KeyDirective = GraphQLDirective(
@@ -217,11 +214,11 @@ FEDERATION_DIRECTIVE_NAMES = [
 ]
 
 
-def get_federation_directives() -> List:
+def get_federation_directives() -> list:
     """Get all federation directives."""
     return FEDERATION_DIRECTIVES
 
 
-def get_federation_directive_specs() -> Dict[str, Any]:
+def get_federation_directive_specs() -> dict[str, Any]:
     """Get federation directive specifications."""
     return FEDERATION_DIRECTIVE_SPECS

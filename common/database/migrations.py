@@ -2,7 +2,6 @@
 Database Migrations for PyFault framework - Alembic integration.
 """
 
-import os
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -40,7 +39,7 @@ class MigrationManager:
         print(f"Migrations initialized at {self.migrations_dir}")
         return True
 
-    def _update_alembic_ini(self):
+    def _update_alembic_ini(self) -> None:
         """Update alembic.ini with database URL."""
         if not self.alembic_ini.exists():
             return

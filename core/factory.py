@@ -14,12 +14,12 @@ class PyFaultFactory:
     Application Factory for creating PyFault applications.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.container = Container()
         self.injector = Injector(self.container)
         self.scanner = MetadataScanner()
 
-    async def create(self, root_module: type, config: Optional[dict] = None):
+    async def create(self, root_module: type, config: Optional[dict] = None) -> "PyFaultFactory":
         """Create an application from a root module."""
         config = config or {}
 
@@ -28,7 +28,7 @@ class PyFaultFactory:
 
         return self
 
-    def _process_module(self, module_class: type):
+    def _process_module(self, module_class: type) -> None:
         """Process a module and its dependencies."""
         # Check if it's a module
         if not self.scanner.is_module(module_class):
@@ -54,14 +54,14 @@ class PyFaultFactory:
         for imported_module in imports:
             self._process_module(imported_module)
 
-    def _register_provider(self, provider: type):
+    def _register_provider(self, provider: type) -> None:
         """Register a provider in the container."""
         if self.scanner.is_injectable(provider):
             scope = self.scanner.get_scope(provider)
             scope_enum = Scope(scope)
             self.container.register(provider, provider, scope_enum)
 
-    def _register_controller(self, controller: type):
+    def _register_controller(self, controller: type) -> None:
         """Register a controller."""
         # Controllers are registered but not instantiated yet
         pass

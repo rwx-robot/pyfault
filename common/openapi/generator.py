@@ -3,20 +3,25 @@ OpenAPI Generator for PyFault framework - auto-generates from routes.
 """
 
 import inspect
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+from pyfault.common.openapi.decorators import get_openapi_doc, init_openapi
 from pyfault.common.openapi.schema import (
-    Info, Server, Operation, Parameter, RequestBody, Response,
-    PathItem, Components, SecurityScheme, OpenAPISchema
+    Components,
+    OpenAPISchema,
+    Operation,
+    Parameter,
+    PathItem,
+    Response,
+    SecurityScheme,
 )
-from pyfault.common.openapi.decorators import init_openapi, get_openapi_doc
-from pyfault.core.scanner import MetadataScanner, MetadataKeys
+from pyfault.core.scanner import MetadataKeys, MetadataScanner
 
 
 class OpenAPIGenerator:
     """Auto-generates OpenAPI documentation from PyFault routes."""
 
-    def __init__(self, app_factory=None):
+    def __init__(self, app_factory: Any = None):
         self.app_factory = app_factory
         self.scanner = MetadataScanner()
 
@@ -27,6 +32,8 @@ class OpenAPIGenerator:
         # Initialize OpenAPI document
         init_openapi(title, version)
         doc = get_openapi_doc()
+        if doc is None:
+            raise RuntimeError("OpenAPI document is not initialized")
 
         if self.app_factory and hasattr(self.app_factory, 'container'):
             # Generate from registered controllers
@@ -40,12 +47,12 @@ class OpenAPIGenerator:
 
         return doc
 
-    def _generate_from_scanner(self, doc: OpenAPISchema):
+    def _generate_from_scanner(self, doc: OpenAPISchema) -> None:
         """Generate from metadata scanner."""
         # This would scan all modules for controllers and routes
         pass
 
-    def _generate_from_controllers(self, doc: OpenAPISchema):
+    def _generate_from_controllers(self, doc: OpenAPISchema) -> None:
         """Generate from registered controllers in container."""
         # This would inspect the container for controllers
         pass
@@ -56,6 +63,8 @@ class OpenAPIGenerator:
 
         init_openapi(title, version)
         doc = get_openapi_doc()
+        if doc is None:
+            raise RuntimeError("OpenAPI document is not initialized")
 
         # Get module config
         module_config = self.scanner.get_metadata(module_class, MetadataKeys.MODULE)
@@ -71,7 +80,7 @@ class OpenAPIGenerator:
         self._add_security_schemes(doc)
         return doc
 
-    def _generate_from_controller(self, doc: OpenAPISchema, controller_class: type):
+    def _generate_from_controller(self, doc: OpenAPISchema, controller_class: type) -> None:
         """Generate OpenAPI paths from a controller class."""
         # Get prefix
         prefix = self.scanner.get_metadata(controller_class, MetadataKeys.PREFIX) or ''
@@ -114,7 +123,7 @@ class OpenAPIGenerator:
             path_item = doc.paths[full_path]
             setattr(path_item, method, operation)
 
-    def _find_handler_method(self, controller_class: type, route: dict):
+    def _find_handler_method(self, controller_class: type, route: dict) -> Any:
         """Find the handler method for a route."""
         method_name = route.get('method', 'GET').lower()
         path = route.get('path', '')
@@ -122,19 +131,16 @@ class OpenAPIGenerator:
         for attr_name in dir(controller_class):
             attr = getattr(controller_class, attr_name)
             if callable(attr) and hasattr(attr, '__routes__'):
-                method_routes = getattr(attr, '__routes__')
+                method_routes = attr.__routes__
                 for r in method_routes:
                     if r.get('path') == path and r.get('method', '').lower() == method_name:
                         return attr
         return None
 
-    def _collect_schemas(self, doc: OpenAPISchema, module_class: type):
+    def _collect_schemas(self, doc: OpenAPISchema, module_class: type) -> None:
         """Collect schema definitions from classes in module."""
         if doc.components is None:
             doc.components = Components()
-
-        if doc.components.schemas is None:
-            doc.components.schemas = {}
 
         # Get module config
         module_config = self.scanner.get_metadata(module_class, MetadataKeys.MODULE)
@@ -148,7 +154,7 @@ class OpenAPIGenerator:
             for imported_module in module_config.get('imports', []):
                 self._collect_schemas(doc, imported_module)
 
-    def _collect_class_schema(self, doc: OpenAPISchema, cls: type):
+    def _collect_class_schema(self, doc: OpenAPISchema, cls: type) -> None:
         """Collect schema from a class if it has @schema decorator."""
         schema_name = getattr(cls, '__openapi_schema__', None)
         if schema_name:
@@ -172,11 +178,13 @@ class OpenAPIGenerator:
             if required:
                 schema_dict["required"] = required
 
+            if doc.components is None:
+                doc.components = Components()
             doc.components.schemas[schema_name] = schema_dict
 
-    def _extract_parameters(self, path: str, handler) -> List[Parameter]:
+    def _extract_parameters(self, path: str, handler: Any) -> list[Parameter]:
         """Extract path and query parameters from route."""
-        parameters = []
+        parameters: list[Parameter] = []
 
         if handler is None:
             return parameters
@@ -211,49 +219,46 @@ class OpenAPIGenerator:
 
         return parameters
 
-    def _extract_path_params(self, path: str) -> List[str]:
+    def _extract_path_params(self, path: str) -> list[str]:
         """Extract parameter names from path template."""
         import re
         return re.findall(r'\{(\w+)\}', path)
 
-    def _param_type_to_schema(self, annotation) -> Dict[str, Any]:
+    def _param_type_to_schema(self, annotation: Any) -> dict[str, Any]:
         """Convert Python type annotation to OpenAPI schema."""
         if annotation == inspect.Parameter.empty:
             return {"type": "string"}
 
-        if annotation == str:
+        if annotation is str:
             return {"type": "string"}
-        elif annotation == int:
+        elif annotation is int:
             return {"type": "integer"}
-        elif annotation == float:
+        elif annotation is float:
             return {"type": "number"}
-        elif annotation == bool:
+        elif annotation is bool:
             return {"type": "boolean"}
-        elif annotation == list:
+        elif annotation is list:
             return {"type": "array", "items": {"type": "string"}}
 
         # Handle Optional
         if hasattr(annotation, '__origin__'):
-            from typing import Optional, List
+            from typing import Optional
             if annotation.__origin__ is Optional:
                 args = annotation.__args__
                 non_none = [a for a in args if a is not type(None)]
                 if non_none:
                     return self._param_type_to_schema(non_none[0])
-            elif annotation.__origin__ is List:
+            elif annotation.__origin__ is list:
                 args = annotation.__args__
                 if args:
                     return {"type": "array", "items": self._param_type_to_schema(args[0])}
 
         return {"type": "string"}
 
-    def _add_security_schemes(self, doc: OpenAPISchema):
+    def _add_security_schemes(self, doc: OpenAPISchema) -> None:
         """Add default security schemes."""
         if doc.components is None:
             doc.components = Components()
-
-        if doc.components.security_schemes is None:
-            doc.components.security_schemes = {}
 
         # Bearer token (JWT)
         doc.components.security_schemes["bearerAuth"] = SecurityScheme(
@@ -269,7 +274,7 @@ class OpenAPIGenerator:
             description="API Key in header"
         )
 
-    def save_json(self, filepath: str):
+    def save_json(self, filepath: str) -> None:
         """Save OpenAPI document as JSON."""
         import json
         doc = get_openapi_doc()
@@ -277,7 +282,7 @@ class OpenAPIGenerator:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(doc.to_dict(), f, indent=2, ensure_ascii=False)
 
-    def save_yaml(self, filepath: str):
+    def save_yaml(self, filepath: str) -> None:
         """Save OpenAPI document as YAML."""
         try:
             import yaml

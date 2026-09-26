@@ -6,11 +6,12 @@ import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
 from enum import Enum
+from typing import Any, Callable, Generic, Optional, TypeVar
 
-from pyfault.common.eventsourcing.events import Event, EventMetadata
+from pyfault.common.cqrs.core import CommandMiddleware
 from pyfault.common.cqrs.middleware import MiddlewareChain
+from pyfault.common.eventsourcing.events import Event
 
 
 class CommandStatus(str, Enum):
@@ -29,7 +30,7 @@ R = TypeVar("R")
 class Command:
     """
     Base command class.
-    
+
     A command represents an intent to change state.
     Commands are immutable and should be validated before execution.
     """
@@ -38,7 +39,7 @@ class Command:
     correlation_id: Optional[str] = None
     causation_id: Optional[str] = None
     timestamp: datetime = field(default_factory=datetime.utcnow)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __init__(
         self,
@@ -47,9 +48,9 @@ class Command:
         correlation_id: Optional[str] = None,
         causation_id: Optional[str] = None,
         timestamp: Optional[datetime] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        **kwargs,
-    ):
+        metadata: Optional[dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> None:
         self.command_id = command_id or str(uuid.uuid4())
         self.aggregate_id = aggregate_id
         self.correlation_id = correlation_id
@@ -57,15 +58,15 @@ class Command:
         self.timestamp = timestamp or datetime.utcnow()
         self.metadata = metadata or {}
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.causation_id:
             self.causation_id = self.command_id
 
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         """Validate the command. Return list of validation errors."""
         return []
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "command_id": self.command_id,
             "aggregate_id": self.aggregate_id,
@@ -76,7 +77,7 @@ class Command:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Command":
+    def from_dict(cls, data: dict[str, Any]) -> "Command":
         return cls(
             command_id=data.get("command_id", str(uuid.uuid4())),
             aggregate_id=data.get("aggregate_id"),
@@ -93,11 +94,12 @@ class CommandResult:
     success: bool
     command_id: str
     aggregate_id: Optional[str] = None
-    events: List[Event] = field(default_factory=list)
+    events: list[Event] = field(default_factory=list)
     error: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    data: Any = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "success": self.success,
             "command_id": self.command_id,
@@ -111,13 +113,13 @@ class CommandResult:
 class CommandHandler(ABC, Generic[C, R]):
     """
     Abstract base class for command handlers.
-    
+
     A command handler contains the business logic for executing a command.
     """
-    
+
     @property
     @abstractmethod
-    def command_type(self) -> Type[C]:
+    def command_type(self) -> type[C]:
         """The type of command this handler handles."""
         pass
 
@@ -126,7 +128,7 @@ class CommandHandler(ABC, Generic[C, R]):
         """Execute the command and return result."""
         pass
 
-    async def validate(self, command: C) -> List[str]:
+    async def validate(self, command: C) -> list[str]:
         """Validate the command before execution."""
         return command.validate()
 
@@ -138,21 +140,21 @@ class CommandHandler(ABC, Generic[C, R]):
 class CommandBus:
     """
     Command bus for dispatching commands to handlers.
-    
+
     The command bus routes commands to their registered handlers
     and manages the command execution pipeline.
     """
-    
-    def __init__(self):
-        self._handlers: Dict[Type[Command], CommandHandler] = {}
-        self._middleware: List[CommandMiddleware] = []
+
+    def __init__(self) -> None:
+        self._handlers: dict[type[Command], CommandHandler] = {}
+        self._middleware: list[CommandMiddleware] = []
         self._default_handler: Optional[CommandHandler] = None
 
     def register(self, handler: CommandHandler) -> None:
         """Register a command handler."""
         self._handlers[handler.command_type] = handler
 
-    def unregister(self, command_type: Type[Command]) -> bool:
+    def unregister(self, command_type: type[Command]) -> bool:
         """Unregister a command handler."""
         if command_type in self._handlers:
             del self._handlers[command_type]
@@ -196,9 +198,10 @@ class CommandBus:
 
         # Build middleware chain
         chain = MiddlewareChain(self._middleware, execute_handler)
-        return await chain.execute(command)
+        result: CommandResult = await chain.execute(command)
+        return result
 
-    async def dispatch_batch(self, commands: List[Command]) -> List[CommandResult]:
+    async def dispatch_batch(self, commands: list[Command]) -> list[CommandResult]:
         """Dispatch multiple commands."""
         results = []
         for command in commands:
@@ -207,9 +210,9 @@ class CommandBus:
         return results
 
 
-def command(cls=None, *, command_type: Type[Command] = None):
+def command(cls: Optional[type] = None, *, command_type: Optional[type[Command]] = None) -> Callable[..., Any]:
     """Decorator for creating command classes."""
-    def decorator(cls):
+    def decorator(cls: type) -> type:
         # Check if already a dataclass
         if not hasattr(cls, '__dataclass_fields__'):
             cls = dataclass(cls)
@@ -217,7 +220,7 @@ def command(cls=None, *, command_type: Type[Command] = None):
         if not issubclass(cls, Command):
             raise TypeError("Command class must inherit from Command")
         return cls
-    
+
     if cls is None:
         return decorator
     return decorator(cls)
@@ -229,9 +232,9 @@ def command(cls=None, *, command_type: Type[Command] = None):
 class CreateEntityCommand(Command):
     """Command to create a new entity."""
     entity_type: str = field(default="")
-    payload: Dict[str, Any] = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=dict)
 
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         errors = super().validate()
         if not self.entity_type:
             errors.append("entity_type is required")
@@ -246,9 +249,9 @@ class UpdateEntityCommand(Command):
     """Command to update an existing entity."""
     entity_type: str = field(default="")
     entity_id: str = field(default="")
-    payload: Dict[str, Any] = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=dict)
 
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         errors = super().validate()
         if not self.entity_type:
             errors.append("entity_type is required")
@@ -264,7 +267,7 @@ class DeleteEntityCommand(Command):
     entity_type: str = field(default="")
     entity_id: str = field(default="")
 
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         errors = super().validate()
         if not self.entity_type:
             errors.append("entity_type is required")

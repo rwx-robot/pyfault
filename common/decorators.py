@@ -2,12 +2,12 @@
 Decorators for PyFault framework.
 """
 
-from typing import Callable
+from typing import Any, Callable
 
 from pyfault.core.scanner import MetadataKeys, MetadataScanner
 
 
-def injectable(scope: str = 'singleton'):
+def injectable(scope: str = 'singleton') -> Callable:
     """
     Decorator to mark a class as injectable.
 
@@ -27,7 +27,7 @@ def injectable(scope: str = 'singleton'):
     return decorator
 
 
-def controller(prefix: str = ''):
+def controller(prefix: str = '') -> Callable:
     """
     Decorator to mark a class as a controller.
 
@@ -44,7 +44,7 @@ def controller(prefix: str = ''):
     return decorator
 
 
-def module(config: dict):
+def module(config: dict) -> Callable:
     """
     Decorator to mark a class as a module.
 
@@ -63,7 +63,7 @@ def module(config: dict):
     return decorator
 
 
-def get(path: str):
+def get(path: str) -> Callable:
     """
     Decorator to define a GET route.
 
@@ -75,9 +75,10 @@ def get(path: str):
                 return []
     """
     def decorator(method: Callable) -> Callable:
-        if not hasattr(method, '__routes__'):
-            method.__routes__ = []
-        method.__routes__.append({
+        method_any: Any = method
+        if not hasattr(method_any, '__routes__'):
+            method_any.__routes__ = []
+        method_any.__routes__.append({
             'method': 'GET',
             'path': path,
         })
@@ -85,7 +86,7 @@ def get(path: str):
     return decorator
 
 
-def post(path: str):
+def post(path: str) -> Callable:
     """
     Decorator to define a POST route.
 
@@ -97,9 +98,10 @@ def post(path: str):
                 return data
     """
     def decorator(method: Callable) -> Callable:
-        if not hasattr(method, '__routes__'):
-            method.__routes__ = []
-        method.__routes__.append({
+        method_any: Any = method
+        if not hasattr(method_any, '__routes__'):
+            method_any.__routes__ = []
+        method_any.__routes__.append({
             'method': 'POST',
             'path': path,
         })
@@ -107,14 +109,15 @@ def post(path: str):
     return decorator
 
 
-def put(path: str):
+def put(path: str) -> Callable:
     """
     Decorator to define a PUT route.
     """
     def decorator(method: Callable) -> Callable:
-        if not hasattr(method, '__routes__'):
-            method.__routes__ = []
-        method.__routes__.append({
+        method_any: Any = method
+        if not hasattr(method_any, '__routes__'):
+            method_any.__routes__ = []
+        method_any.__routes__.append({
             'method': 'PUT',
             'path': path,
         })
@@ -122,14 +125,15 @@ def put(path: str):
     return decorator
 
 
-def delete(path: str):
+def delete(path: str) -> Callable:
     """
     Decorator to define a DELETE route.
     """
     def decorator(method: Callable) -> Callable:
-        if not hasattr(method, '__routes__'):
-            method.__routes__ = []
-        method.__routes__.append({
+        method_any: Any = method
+        if not hasattr(method_any, '__routes__'):
+            method_any.__routes__ = []
+        method_any.__routes__.append({
             'method': 'DELETE',
             'path': path,
         })
@@ -137,25 +141,27 @@ def delete(path: str):
     return decorator
 
 
-def body():
+def body() -> Callable:
     """
     Decorator to mark a parameter as request body.
     """
     def decorator(func: Callable) -> Callable:
-        if not hasattr(func, '__params__'):
-            func.__params__ = {}
-        func.__params__['body'] = True
+        func_any: Any = func
+        if not hasattr(func_any, '__params__'):
+            func_any.__params__ = {}
+        func_any.__params__['body'] = True
         return func
     return decorator
 
 
-def param(name: str):
+def param(name: str) -> Callable:
     """
     Decorator to mark a parameter as route parameter.
     """
     def decorator(func: Callable) -> Callable:
-        if not hasattr(func, '__params__'):
-            func.__params__ = {}
-        func.__params__['param'] = name
+        func_any: Any = func
+        if not hasattr(func_any, '__params__'):
+            func_any.__params__ = {}
+        func_any.__params__['param'] = name
         return func
     return decorator

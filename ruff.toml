@@ -1,0 +1,35 @@
+# Ruff configuration for the PyFault framework repository.
+# Keep in sync with [tool.ruff] / [tool.ruff.lint] in the workspace pyproject.toml.
+
+line-length = 88
+target-version = "py39"
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "N",   # pep8-naming
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501", # line length handled by formatter
+]
+
+[lint.per-file-ignores]
+# Package __init__ files re-export public API names.
+"**/__init__.py" = ["F401"]
+# Mathematical notation (X, XX, K_XX) in ML/stats code.
+"monitoring/drift/__init__.py" = ["N803", "N806"]
+"ai/backends/__init__.py" = ["N806"]
+"edge/scheduler.py" = ["N806"]
+# Domain names kept as-is: GraphQL types, decorator factories, public exception.
+"platform/graphql/adapter.py" = ["N802"]
+"common/monitoring/manager.py" = ["N802"]
+"microservices/client.py" = ["N802"]
+"common/errors/handler.py" = ["N818"]
+# Optional lifecycle hooks intentionally empty in the base class.
+"common/plugins/base.py" = ["B027"]

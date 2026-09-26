@@ -5,7 +5,7 @@ Audit Module for PyFault framework.
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 
 class AuditAction(str, Enum):
@@ -34,12 +34,12 @@ class AuditLog:
 class AuditModule:
     """Audit module for tracking user actions."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._logs: list[AuditLog] = []
         self._log_id_counter = 0
 
-    def log(self, action: AuditAction, resource: str, user_id: str = None,
-            details: dict[str, Any] = None, ip_address: str = None):
+    def log(self, action: AuditAction, resource: str, user_id: Optional[str] = None,
+            details: Optional[dict[str, Any]] = None, ip_address: Optional[str] = None) -> AuditLog:
         """Create an audit log entry."""
         self._log_id_counter += 1
         log = AuditLog(
@@ -54,17 +54,17 @@ class AuditModule:
         self._logs.append(log)
         return log
 
-    def get_logs(self, user_id: str = None, action: AuditAction = None,
-                 resource: str = None) -> list[AuditLog]:
+    def get_logs(self, user_id: Optional[str] = None, action: Optional[AuditAction] = None,
+                 resource: Optional[str] = None) -> list[AuditLog]:
         """Get audit logs with optional filters."""
         logs = self._logs
 
         if user_id:
-            logs = [l for l in logs if l.user_id == user_id]
+            logs = [entry for entry in logs if entry.user_id == user_id]
         if action:
-            logs = [l for l in logs if l.action == action]
+            logs = [entry for entry in logs if entry.action == action]
         if resource:
-            logs = [l for l in logs if l.resource == resource]
+            logs = [entry for entry in logs if entry.resource == resource]
 
         return logs
 
@@ -72,7 +72,7 @@ class AuditModule:
         """Get recent audit logs."""
         return self._logs[-limit:]
 
-    def clear_logs(self):
+    def clear_logs(self) -> None:
         """Clear all audit logs."""
         self._logs.clear()
 
@@ -83,10 +83,10 @@ class AuditInterceptor:
     def __init__(self, audit_module: AuditModule):
         self.audit_module = audit_module
 
-    def intercept(self, action: AuditAction, resource: str):
+    def intercept(self, action: AuditAction, resource: str) -> Callable[..., Any]:
         """Interceptor decorator."""
-        def decorator(func):
-            async def wrapper(*args, **kwargs):
+        def decorator(func: Any) -> Any:
+            async def wrapper(*args: Any, **kwargs: Any) -> Any:
                 # Log before execution
                 user_id = kwargs.get('user_id')
                 self.audit_module.log(action, resource, user_id)

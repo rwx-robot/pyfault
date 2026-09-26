@@ -29,42 +29,42 @@ class GraphQLAdapter:
     GraphQL Adapter for handling GraphQL queries.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._queries: dict[str, dict] = {}
         self._mutations: dict[str, dict] = {}
         self._types: dict[str, GraphQLObjectType] = {}
         self._type_definitions: dict[str, dict] = {}
         self._resolved_types: dict[str, GraphQLObjectType] = {}
 
-    def register_query(self, name: str, resolver: Callable, return_type: Any = 'String'):
+    def register_query(self, name: str, resolver: Callable, return_type: Any = 'String') -> None:
         """Register a query resolver."""
         self._queries[name] = {
             'resolver': resolver,
             'return_type': return_type,
         }
 
-    def register_mutation(self, name: str, resolver: Callable, return_type: Any = 'String'):
+    def register_mutation(self, name: str, resolver: Callable, return_type: Any = 'String') -> None:
         """Register a mutation resolver."""
         self._mutations[name] = {
             'resolver': resolver,
             'return_type': return_type,
         }
 
-    def Query(self, name: str, return_type: Any = 'String'):
+    def Query(self, name: str, return_type: Any = 'String') -> Callable[..., Any]:
         """Decorator for registering a query."""
-        def decorator(func: Callable):
+        def decorator(func: Callable) -> Any:
             self.register_query(name, func, return_type)
             return func
         return decorator
 
-    def Mutation(self, name: str, return_type: Any = 'String'):
+    def Mutation(self, name: str, return_type: Any = 'String') -> Callable[..., Any]:
         """Decorator for registering a mutation."""
-        def decorator(func: Callable):
+        def decorator(func: Callable) -> Any:
             self.register_mutation(name, func, return_type)
             return func
         return decorator
 
-    def _get_mock_obj_and_info(self):
+    def _get_mock_obj_and_info(self) -> tuple[SimpleNamespace, SimpleNamespace]:
         """Create mock obj and info for resolver introspection."""
         mock_obj = SimpleNamespace()
         mock_info = SimpleNamespace()
@@ -129,11 +129,11 @@ class GraphQLAdapter:
                         kwargs[param_name] = param.default
                     else:
                         # Provide default test values for required params
-                        if param.annotation == int:
+                        if param.annotation is int:
                             kwargs[param_name] = 1
-                        elif param.annotation == float:
+                        elif param.annotation is float:
                             kwargs[param_name] = 1.0
-                        elif param.annotation == bool:
+                        elif param.annotation is bool:
                             kwargs[param_name] = True
                         else:
                             kwargs[param_name] = "test"
@@ -159,14 +159,14 @@ class GraphQLAdapter:
         fields = {}
         annotations = getattr(cls, '__annotations__', {})
         for field_name, field_type in annotations.items():
-            gql_type = GraphQLString
-            if field_type == int:
+            gql_type: Any = GraphQLString
+            if field_type is int:
                 gql_type = GraphQLInt
-            elif field_type == float:
+            elif field_type is float:
                 gql_type = GraphQLFloat
-            elif field_type == bool:
+            elif field_type is bool:
                 gql_type = GraphQLBoolean
-            elif field_type == list:
+            elif field_type is list:
                 gql_type = GraphQLList(GraphQLString)
             fields[field_name] = GraphQLField(gql_type)
 
@@ -189,13 +189,13 @@ class GraphQLAdapter:
                 if param_name in ('obj', 'info', 'self'):
                     continue
                 # Map Python type to GraphQL type
-                gql_type = GraphQLString
+                gql_type: Any = GraphQLString
                 if param.annotation != inspect.Parameter.empty:
-                    if param.annotation == int:
+                    if param.annotation is int:
                         gql_type = GraphQLInt
-                    elif param.annotation == float:
+                    elif param.annotation is float:
                         gql_type = GraphQLFloat
-                    elif param.annotation == bool:
+                    elif param.annotation is bool:
                         gql_type = GraphQLBoolean
                 # Check if required (no default value)
                 if param.default == inspect.Parameter.empty:
@@ -235,11 +235,11 @@ class GraphQLAdapter:
                 # Map Python type to GraphQL type
                 gql_type = GraphQLString
                 if param.annotation != inspect.Parameter.empty:
-                    if param.annotation == int:
+                    if param.annotation is int:
                         gql_type = GraphQLInt
-                    elif param.annotation == float:
+                    elif param.annotation is float:
                         gql_type = GraphQLFloat
-                    elif param.annotation == bool:
+                    elif param.annotation is bool:
                         gql_type = GraphQLBoolean
                 # Check if required (no default value)
                 if param.default == inspect.Parameter.empty:
@@ -269,7 +269,7 @@ class GraphQLAdapter:
         """Build GraphQL routes."""
         schema = self._build_schema()
 
-        async def graphql_endpoint(request: Request):
+        async def graphql_endpoint(request: Request) -> JSONResponse:
             try:
                 body = await request.json()
                 query = body.get('query', '')

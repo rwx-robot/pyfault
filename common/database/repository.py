@@ -2,14 +2,11 @@
 Repository Pattern for PyFault framework.
 """
 
-from typing import Any, Generic, List, Optional, Type, TypeVar
+from typing import Any, Generic, Optional, TypeVar, cast
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
 
-from pyfault.common.database.session import session_scope, async_session_scope
-
+from pyfault.common.database.session import async_session_scope, session_scope
 
 T = TypeVar("T")
 
@@ -17,7 +14,7 @@ T = TypeVar("T")
 class BaseRepository(Generic[T]):
     """Base repository with common CRUD operations."""
 
-    def __init__(self, model_class: Type[T]):
+    def __init__(self, model_class: type[T]):
         self.model_class = model_class
 
     # Sync methods
@@ -26,25 +23,25 @@ class BaseRepository(Generic[T]):
         with session_scope() as session:
             return session.get(self.model_class, id)
 
-    def get_all(self, limit: int = 100, offset: int = 0) -> List[T]:
+    def get_all(self, limit: int = 100, offset: int = 0) -> list[T]:
         """Get all entities with pagination."""
         with session_scope() as session:
             stmt = select(self.model_class).limit(limit).offset(offset)
             return list(session.scalars(stmt))
 
-    def find_by(self, **kwargs) -> List[T]:
+    def find_by(self, **kwargs: Any) -> list[T]:
         """Find entities by criteria."""
         with session_scope() as session:
             stmt = select(self.model_class).filter_by(**kwargs)
             return list(session.scalars(stmt))
 
-    def find_one_by(self, **kwargs) -> Optional[T]:
+    def find_one_by(self, **kwargs: Any) -> Optional[T]:
         """Find single entity by criteria."""
         with session_scope() as session:
             stmt = select(self.model_class).filter_by(**kwargs)
             return session.scalar(stmt)
 
-    def create(self, **kwargs) -> T:
+    def create(self, **kwargs: Any) -> T:
         """Create new entity."""
         with session_scope() as session:
             entity = self.model_class(**kwargs)
@@ -53,7 +50,7 @@ class BaseRepository(Generic[T]):
             session.refresh(entity)
             return entity
 
-    def update(self, id: Any, **kwargs) -> Optional[T]:
+    def update(self, id: Any, **kwargs: Any) -> Optional[T]:
         """Update entity by ID."""
         with session_scope() as session:
             entity = session.get(self.model_class, id)
@@ -86,27 +83,27 @@ class BaseRepository(Generic[T]):
         async with async_session_scope() as session:
             return await session.get(self.model_class, id)
 
-    async def aget_all(self, limit: int = 100, offset: int = 0) -> List[T]:
+    async def aget_all(self, limit: int = 100, offset: int = 0) -> list[T]:
         """Get all entities with pagination (async)."""
         async with async_session_scope() as session:
             stmt = select(self.model_class).limit(limit).offset(offset)
             result = await session.scalars(stmt)
             return list(result)
 
-    async def afind_by(self, **kwargs) -> List[T]:
+    async def afind_by(self, **kwargs: Any) -> list[T]:
         """Find entities by criteria (async)."""
         async with async_session_scope() as session:
             stmt = select(self.model_class).filter_by(**kwargs)
             result = await session.scalars(stmt)
             return list(result)
 
-    async def afind_one_by(self, **kwargs) -> Optional[T]:
+    async def afind_one_by(self, **kwargs: Any) -> Optional[T]:
         """Find single entity by criteria (async)."""
         async with async_session_scope() as session:
             stmt = select(self.model_class).filter_by(**kwargs)
-            return await session.scalar(stmt)
+            return cast(Optional[T], await session.scalar(stmt))
 
-    async def acreate(self, **kwargs) -> T:
+    async def acreate(self, **kwargs: Any) -> T:
         """Create new entity (async)."""
         async with async_session_scope() as session:
             entity = self.model_class(**kwargs)
@@ -115,7 +112,7 @@ class BaseRepository(Generic[T]):
             await session.refresh(entity)
             return entity
 
-    async def aupdate(self, id: Any, **kwargs) -> Optional[T]:
+    async def aupdate(self, id: Any, **kwargs: Any) -> Optional[T]:
         """Update entity by ID (async)."""
         async with async_session_scope() as session:
             entity = await session.get(self.model_class, id)
@@ -146,9 +143,9 @@ class BaseRepository(Generic[T]):
 class RepositoryMixin:
     """Mixin to add repository to a service class."""
 
-    def __init_subclass__(cls, **kwargs):
+    def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
 
-    def repository(self, model_class: Type[T]) -> BaseRepository[T]:
+    def repository(self, model_class: type[T]) -> BaseRepository[T]:
         """Create a repository for the given model."""
         return BaseRepository(model_class)

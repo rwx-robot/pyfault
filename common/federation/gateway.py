@@ -2,38 +2,21 @@
 GraphQL Gateway for PyFault framework - Apollo Federation compatible.
 """
 
-import asyncio
-import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
-from urllib.parse import urljoin
+from typing import Any, Callable, Optional
 
 import httpx
 from graphql import (
-    GraphQLSchema,
-    GraphQLObjectType,
-    GraphQLInputObjectType,
-    GraphQLInputField,
+    GraphQLArgument,
     GraphQLField,
-    GraphQLString,
+    GraphQLInputField,
+    GraphQLInputObjectType,
     GraphQLList,
     GraphQLNonNull,
-    GraphQLInt,
-    GraphQLBoolean,
+    GraphQLObjectType,
+    GraphQLSchema,
+    GraphQLString,
     graphql,
-    parse,
-    validate,
-    specified_rules,
-    GraphQLError,
-)
-from graphql.execution import execute
-
-from pyfault.common.federation.directives import (
-    KeyDirective,
-    ExtendsDirective,
-    ExternalDirective,
-    RequiresDirective,
-    ProvidesDirective,
 )
 
 
@@ -43,36 +26,36 @@ class ServiceConfig:
     name: str
     url: str
     schema: Optional[GraphQLSchema] = None
-    headers: Dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
     timeout: float = 30.0
 
 
 @dataclass
 class QueryPlan:
     """Execution plan for a federated query."""
-    operations: List[Dict[str, Any]]
-    services: List[str]
+    operations: list[dict[str, Any]]
+    services: list[str]
 
 
 class GraphQLGateway:
     """
     GraphQL Gateway for Apollo Federation.
-    
+
     Composes multiple GraphQL services into a single unified schema.
     """
 
     def __init__(
         self,
-        services: List[ServiceConfig] = None,
-        schema: GraphQLSchema = None,
+        services: Optional[list[ServiceConfig]] = None,
+        schema: Optional[GraphQLSchema] = None,
         experimental_entities: bool = True,
     ):
         self.services = services or []
         self._schema = schema
-        self._service_clients: Dict[str, httpx.AsyncClient] = {}
+        self._service_clients: dict[str, httpx.AsyncClient] = {}
         self._experimental_entities = experimental_entities
         self._federation_schema: Optional[GraphQLSchema] = None
-        self._entity_resolver: Dict[str, Callable] = {}
+        self._entity_resolver: dict[str, Callable] = {}
 
     async def initialize(self) -> None:
         """Initialize the gateway by fetching and composing schemas."""
@@ -180,7 +163,7 @@ class GraphQLGateway:
         except Exception as e:
             print(f"Failed to fetch schema for {service.name}: {e}")
 
-    def _parse_introspection(self, schema_data: Dict) -> GraphQLSchema:
+    def _parse_introspection(self, schema_data: dict) -> GraphQLSchema:
         """Parse introspection result into GraphQLSchema."""
         # Simplified - in production use graphql-core's build_client_schema
         return GraphQLSchema()
@@ -249,7 +232,7 @@ class GraphQLGateway:
         # Create federated schema
         return GraphQLSchema(
             query=GraphQLObjectType(name="Query", fields=query_fields),
-            types=[entity_union, service_type] + [s.schema.query_type for s in self.services if s.schema],
+            types=[entity_union, service_type] + [s.schema.query_type for s in self.services if s.schema and s.schema.query_type],
         )
 
     def _has_key_directive(self, type_def: GraphQLObjectType) -> bool:
@@ -260,9 +243,9 @@ class GraphQLGateway:
                 return True
         return False
 
-    async def _resolve_entities(self, obj, info, representations: List[Dict]) -> List[Any]:
+    async def _resolve_entities(self, obj: Any, info: Any, representations: list[dict]) -> list[Any]:
         """Resolve entity representations across services."""
-        results = []
+        results: list[Any] = []
 
         for rep in representations:
             typename = rep.get("__typename")
@@ -282,14 +265,14 @@ class GraphQLGateway:
 
         return results
 
-    async def _resolve_entity_in_service(self, service: ServiceConfig, representation: Dict) -> Any:
+    async def _resolve_entity_in_service(self, service: ServiceConfig, representation: dict) -> Any:
         """Resolve a single entity in a specific service."""
         # Build query for entity
         typename = representation.get("__typename")
         fields = list(representation.keys())
         fields.remove("__typename")
 
-        query = f"""
+        query = rf"""
         query GetEntity(\$representations: [_Any!]!) {{
             _entities(representations: \$representations) {{
                 ... on {typename} {{
@@ -314,7 +297,7 @@ class GraphQLGateway:
         except Exception:
             return None
 
-    async def _resolve_service(self, obj, info) -> Dict[str, str]:
+    async def _resolve_service(self, obj: Any, info: Any) -> dict[str, str]:
         """Resolve _service query."""
         # Return combined SDL
         sdl_parts = []
@@ -325,14 +308,17 @@ class GraphQLGateway:
 
         return {"sdl": "\n".join(sdl_parts)}
 
-    async def execute(self, query: str, variables: Dict = None, context: Any = None) -> Dict[str, Any]:
+    async def execute(self, query: str, variables: Optional[dict] = None, context: Any = None) -> dict[str, Any]:
         """Execute a federated query."""
         if not self._federation_schema:
             await self.initialize()
+        schema = self._federation_schema
+        if schema is None:
+            raise RuntimeError("Federation schema not initialized")
 
         # Execute query against federated schema
         result = await graphql(
-            self._federation_schema,
+            schema,
             query,
             variable_values=variables,
             context_value=context,
@@ -343,7 +329,7 @@ class GraphQLGateway:
             "errors": [str(e) for e in result.errors] if result.errors else None,
         }
 
-    async def execute_subscription(self, query: str, variables: Dict = None) -> Any:
+    async def execute_subscription(self, query: str, variables: Optional[dict] = None) -> Any:
         """Execute a federated subscription."""
         # Subscriptions would need special handling for federation
         pass
@@ -356,18 +342,19 @@ class GraphQLGateway:
 
 
 def create_federation_gateway(
-    services: List[Dict[str, Any]] = None,
-    **kwargs
+    services: Optional[list[dict[str, Any]]] = None,
+    **kwargs: Any
 ) -> GraphQLGateway:
     """Create a GraphQL Gateway from service configurations."""
-    services = []
-    for svc in services or []:
-        services.append(ServiceConfig(
+    service_configs = [
+        ServiceConfig(
             name=svc["name"],
             url=svc["url"],
             headers=svc.get("headers", {}),
             timeout=svc.get("timeout", 30.0),
-        ))
+        )
+        for svc in services or []
+    ]
 
-    gateway = GraphQLGateway(services=services, **kwargs)
+    gateway = GraphQLGateway(services=service_configs, **kwargs)
     return gateway

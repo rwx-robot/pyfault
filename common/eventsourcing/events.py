@@ -4,11 +4,11 @@ Event definitions for Event Sourcing.
 
 import json
 import uuid
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field, asdict
+from abc import ABC
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Type, TypeVar
 from enum import Enum
+from typing import Any, Optional, TypeVar
 
 
 class EventType(str, Enum):
@@ -28,11 +28,11 @@ class EventMetadata:
     timestamp: datetime = field(default_factory=datetime.utcnow)
     user_id: Optional[str] = None
     session_id: Optional[str] = None
-    tags: Dict[str, str] = field(default_factory=dict)
+    tags: dict[str, str] = field(default_factory=dict)
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "event_id": self.event_id,
             "correlation_id": self.correlation_id,
@@ -46,7 +46,7 @@ class EventMetadata:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "EventMetadata":
+    def from_dict(cls, data: dict[str, Any]) -> "EventMetadata":
         return cls(
             event_id=data.get("event_id", str(uuid.uuid4())),
             correlation_id=data.get("correlation_id"),
@@ -71,9 +71,9 @@ class Event(ABC):
     event_type: str
     version: int
     metadata: EventMetadata = field(default_factory=EventMetadata)
-    payload: Dict[str, Any] = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "event_id": self.metadata.event_id,
             "aggregate_id": self.aggregate_id,
@@ -91,7 +91,7 @@ class Event(ABC):
         return json.dumps(self.to_dict())
 
     @classmethod
-    def from_dict(cls: Type[E], data: Dict[str, Any]) -> E:
+    def from_dict(cls: type[E], data: dict[str, Any]) -> E:
         return cls(
             aggregate_id=data["aggregate_id"],
             aggregate_type=data["aggregate_type"],
@@ -102,7 +102,7 @@ class Event(ABC):
         )
 
     @classmethod
-    def from_json(cls: Type[E], json_str: str) -> E:
+    def from_json(cls: type[E], json_str: str) -> E:
         return cls.from_dict(json.loads(json_str))
 
 
@@ -111,7 +111,7 @@ class DomainEvent(Event):
     """Domain event with aggregate root reference."""
     aggregate_root_id: str = ""
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.aggregate_root_id:
             self.aggregate_root_id = self.aggregate_id
 
@@ -124,7 +124,7 @@ class EventFactory:
         aggregate_id: str,
         aggregate_type: str,
         event_type: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         version: int,
         metadata: Optional[EventMetadata] = None,
     ) -> Event:
@@ -142,7 +142,7 @@ class EventFactory:
         aggregate_id: str,
         aggregate_type: str,
         event_type: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         version: int,
         aggregate_root_id: str,
         metadata: Optional[EventMetadata] = None,
@@ -166,13 +166,13 @@ class EventSerializer:
         return event.to_json()
 
     @staticmethod
-    def deserialize(event_type: Type[Event], data: str) -> Event:
+    def deserialize(event_type: type[Event], data: str) -> Event:
         return Event.from_json(data)
 
     @staticmethod
-    def serialize_batch(events: List[Event]) -> str:
+    def serialize_batch(events: list[Event]) -> str:
         return json.dumps([e.to_dict() for e in events])
 
     @staticmethod
-    def deserialize_batch(event_type: Type[Event], data: str) -> List[Event]:
+    def deserialize_batch(event_type: type[Event], data: str) -> list[Event]:
         return [Event.from_dict(e) for e in json.loads(data)]

@@ -5,7 +5,7 @@ WebSocket Adapter for PyFault framework.
 import contextlib
 from typing import Callable
 
-from starlette.routing import Route, WebSocketRoute
+from starlette.routing import BaseRoute, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 
 
@@ -14,17 +14,17 @@ class WebSocketAdapter:
     WebSocket Adapter for handling WebSocket connections.
     """
 
-    def __init__(self):
-        self.routes: list[Route] = []
+    def __init__(self) -> None:
+        self.routes: list[BaseRoute] = []
         self._handlers: dict[str, Callable] = {}
 
-    def register_handler(self, path: str, handler: Callable):
+    def register_handler(self, path: str, handler: Callable) -> None:
         """Register a WebSocket handler."""
         self._handlers[path] = handler
 
-    def add_websocket_route(self, path: str, handler: Callable):
+    def add_websocket_route(self, path: str, handler: Callable) -> None:
         """Add a WebSocket route."""
-        async def websocket_endpoint(websocket: WebSocket):
+        async def websocket_endpoint(websocket: WebSocket) -> None:
             await websocket.accept()
             try:
                 while websocket.client_state == WebSocketState.CONNECTED:
@@ -59,12 +59,12 @@ class WebSocketAdapter:
         route = WebSocketRoute(path, endpoint=websocket_endpoint)
         self.routes.append(route)
 
-    def ws(self, path: str):
+    def ws(self, path: str) -> Callable[[Callable], Callable]:
         """Decorator for WebSocket route."""
-        def decorator(func: Callable):
+        def decorator(func: Callable) -> Callable:
             self._handlers[path] = func
 
-            async def websocket_endpoint(websocket: WebSocket):
+            async def websocket_endpoint(websocket: WebSocket) -> None:
                 await websocket.accept()
                 try:
                     while websocket.client_state == WebSocketState.CONNECTED:
@@ -100,6 +100,6 @@ class WebSocketAdapter:
             return func
         return decorator
 
-    def build_routes(self) -> list[Route]:
+    def build_routes(self) -> list[BaseRoute]:
         """Build WebSocket routes."""
         return self.routes

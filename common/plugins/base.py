@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Optional
 
 
 class PluginState(Enum):
@@ -34,11 +34,11 @@ class PluginMetadata:
     license: str = "MIT"
     homepage: str = ""
     repository: str = ""
-    keywords: List[str] = field(default_factory=list)
-    dependencies: List[str] = field(default_factory=list)
-    provides: List[str] = field(default_factory=list)
-    requires: List[str] = field(default_factory=list)
-    config_schema: Dict[str, Any] = field(default_factory=dict)
+    keywords: list[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
+    provides: list[str] = field(default_factory=list)
+    requires: list[str] = field(default_factory=list)
+    config_schema: dict[str, Any] = field(default_factory=dict)
     min_pyfault_version: str = "1.0.0"
     max_pyfault_version: str = ""
     created_at: datetime = field(default_factory=datetime.now)
@@ -48,11 +48,11 @@ class PluginMetadata:
 class BasePlugin(ABC):
     """
     Base class for all plugins.
-    
+
     Plugins extend this class to provide custom functionality.
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[dict[str, Any]] = None) -> None:
         self.config = config or {}
         self.metadata = self._create_metadata()
         self._state = PluginState.UNLOADED
@@ -89,11 +89,11 @@ class BasePlugin(ABC):
         """Check if plugin is running."""
         return self._state == PluginState.RUNNING
 
-    def set_app(self, app):
+    def set_app(self, app: Any) -> None:
         """Set the application instance."""
         self._app = app
 
-    def set_container(self, container):
+    def set_container(self, container: Any) -> None:
         """Set the dependency injection container."""
         self._container = container
 
@@ -105,13 +105,13 @@ class BasePlugin(ABC):
         """Load the plugin."""
         if self._state != PluginState.UNLOADED:
             return False
-        
+
         self._state = PluginState.LOADING
         try:
             await self.on_load()
             self._state = PluginState.LOADED
             return True
-        except Exception as e:
+        except Exception:
             self._state = PluginState.ERROR
             raise
 
@@ -119,13 +119,13 @@ class BasePlugin(ABC):
         """Initialize the plugin."""
         if self._state != PluginState.LOADED:
             return False
-        
+
         self._state = PluginState.INITIALIZING
         try:
             await self.on_initialize()
             self._state = PluginState.INITIALIZED
             return True
-        except Exception as e:
+        except Exception:
             self._state = PluginState.ERROR
             raise
 
@@ -133,13 +133,13 @@ class BasePlugin(ABC):
         """Start the plugin."""
         if self._state != PluginState.INITIALIZED:
             return False
-        
+
         self._state = PluginState.STARTING
         try:
             await self.on_start()
             self._state = PluginState.RUNNING
             return True
-        except Exception as e:
+        except Exception:
             self._state = PluginState.ERROR
             raise
 
@@ -147,13 +147,13 @@ class BasePlugin(ABC):
         """Stop the plugin."""
         if self._state != PluginState.RUNNING:
             return False
-        
+
         self._state = PluginState.STOPPING
         try:
             await self.on_stop()
             self._state = PluginState.STOPPED
             return True
-        except Exception as e:
+        except Exception:
             self._state = PluginState.ERROR
             raise
 
@@ -161,38 +161,38 @@ class BasePlugin(ABC):
         """Unload the plugin."""
         if self._state not in (PluginState.STOPPED, PluginState.ERROR):
             return False
-        
+
         self._state = PluginState.UNLOADING
         try:
             await self.on_unload()
             self._state = PluginState.UNLOADED
             return True
-        except Exception as e:
+        except Exception:
             self._state = PluginState.ERROR
             raise
 
     # Lifecycle hooks - override in subclasses
-    async def on_load(self):
+    async def on_load(self) -> None:
         """Called when plugin is loaded."""
         pass
 
-    async def on_initialize(self):
+    async def on_initialize(self) -> None:
         """Called when plugin is initialized."""
         pass
 
-    async def on_start(self):
+    async def on_start(self) -> None:
         """Called when plugin starts."""
         pass
 
-    async def on_stop(self):
+    async def on_stop(self) -> None:
         """Called when plugin stops."""
         pass
 
-    async def on_unload(self):
+    async def on_unload(self) -> None:
         """Called when plugin is unloaded."""
         pass
 
-    async def on_config_change(self, key: str, old_value: Any, new_value: Any):
+    async def on_config_change(self, key: str, old_value: Any, new_value: Any) -> None:
         """Called when configuration changes."""
         pass
 

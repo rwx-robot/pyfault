@@ -2,7 +2,7 @@
 Dependency Injector for PyFault framework.
 """
 
-from typing import Any
+from typing import Any, Callable
 
 
 class Injector:
@@ -10,7 +10,7 @@ class Injector:
     Dependency Injector for automatic dependency resolution.
     """
 
-    def __init__(self, container):
+    def __init__(self, container: Any) -> None:
         self.container = container
 
     def inject(self, cls: type) -> Any:
@@ -35,7 +35,7 @@ class Injector:
 
         return cls(**kwargs)
 
-    def inject_method(self, method, **kwargs):
+    def inject_method(self, method: Callable[..., Any], **kwargs: Any) -> Any:
         """Inject dependencies into a method."""
         hints = {}
         if hasattr(method, '__annotations__'):

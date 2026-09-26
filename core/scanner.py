@@ -26,7 +26,7 @@ class MetadataScanner:
         return getattr(cls, key, None)
 
     @staticmethod
-    def set_metadata(cls: type, key: str, value: Any):
+    def set_metadata(cls: type, key: str, value: Any) -> None:
         """Set metadata on a class."""
         setattr(cls, key, value)
 
@@ -54,13 +54,13 @@ class MetadataScanner:
     def get_routes(cls: type) -> list[dict]:
         """Get routes from a controller class and its methods."""
         routes = MetadataScanner.get_metadata(cls, MetadataKeys.ROUTES) or []
-        
+
         # Also extract routes from methods
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             if callable(attr) and hasattr(attr, '__routes__'):
-                method_routes = getattr(attr, '__routes__')
+                method_routes = attr.__routes__
                 if isinstance(method_routes, list):
                     routes.extend(method_routes)
-        
+
         return routes

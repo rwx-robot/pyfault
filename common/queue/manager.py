@@ -35,28 +35,28 @@ class Task:
 class TaskQueue:
     """Task queue for background processing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._tasks: dict[str, Task] = {}
         self._handlers: dict[str, Callable] = {}
         self._queue: asyncio.Queue = asyncio.Queue()
 
-    def register_handler(self, name: str, handler: Callable):
+    def register_handler(self, name: str, handler: Callable) -> None:
         """Register a task handler."""
         self._handlers[name] = handler
 
-    def task(self, name: str = None):
+    def task(self, name: Optional[str] = None) -> Callable[[Callable], Callable]:
         """Decorator for registering a task."""
-        def decorator(func: Callable):
+        def decorator(func: Callable) -> Callable:
             task_name = name or func.__name__
             self._handlers[task_name] = func
 
             @wraps(func)
-            async def wrapper(*args, **kwargs):
+            async def wrapper(*args: Any, **kwargs: Any) -> Any:
                 return await self.execute(task_name, *args, **kwargs)
             return wrapper
         return decorator
 
-    async def execute(self, name: str, *args, **kwargs) -> str:
+    async def execute(self, name: str, *args: Any, **kwargs: Any) -> str:
         """Execute a task."""
         task_id = str(uuid.uuid4())
         task = Task(
@@ -72,7 +72,7 @@ class TaskQueue:
 
         return task_id
 
-    async def process_next(self):
+    async def process_next(self) -> None:
         """Process next task in queue."""
         if self._queue.empty():
             return
@@ -110,7 +110,7 @@ class TaskQueue:
 class QueueModule:
     """Queue module for dependency injection."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.queue = TaskQueue()
 
     def get_queue(self) -> TaskQueue:

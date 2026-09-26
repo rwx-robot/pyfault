@@ -10,17 +10,16 @@ Provides comprehensive health assessment with:
 """
 
 import asyncio
+import contextlib
 import logging
-import time
 import statistics
+import uuid
 from abc import ABC, abstractmethod
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
-from collections import defaultdict, deque
-import asyncio
-import uuid
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +56,9 @@ class HealthCheckResult:
     threshold: float = 0.0
     healthy: bool = True
     message: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self) -> Dict[str, Any]:
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "check_id": self.check_id,
             "dimension": self.dimension.value,
@@ -81,13 +80,13 @@ class RegionHealthReport:
     service_name: str
     overall_status: HealthStatus = HealthStatus.UNKNOWN
     overall_score: float = 0.0
-    dimension_scores: Dict[str, float] = field(default_factory=dict)
-    checks: List[HealthCheckResult] = field(default_factory=list)
+    dimension_scores: dict[str, float] = field(default_factory=dict)
+    checks: list[HealthCheckResult] = field(default_factory=list)
     last_updated: datetime = field(default_factory=datetime.utcnow)
     trend: str = "stable"  # improving, stable, degrading
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self) -> Dict[str, Any]:
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "region_id": self.region_id,
             "service_name": self.service_name,
@@ -103,15 +102,15 @@ class RegionHealthReport:
 
 class HealthChecker(ABC):
     """Abstract health checker."""
-    
+
     @abstractmethod
     async def check(
         self,
         service_name: str,
         region_id: str,
-    ) -> List[HealthCheckResult]:
+    ) -> list[HealthCheckResult]:
         pass
-    
+
     @abstractmethod
     def get_dimension(self) -> HealthDimension:
         pass
@@ -119,7 +118,7 @@ class HealthChecker(ABC):
 
 class LatencyHealthChecker:
     """Latency-based health checker."""
-    
+
     def __init__(
         self,
         threshold_ms: float = 500.0,
@@ -129,20 +128,20 @@ class LatencyHealthChecker:
         self.threshold_ms = threshold_ms
         self.percentile = percentile
         self.window_size = window_size
-        self._latencies: Dict[str, deque] = defaultdict(lambda: deque(maxlen=window_size))
-    
+        self._latencies: dict[str, deque] = defaultdict(lambda: deque(maxlen=window_size))
+
     def record_latency(self, service_name: str, region_id: str, latency_ms: float) -> None:
         key = f"{service_name}:{region_id}"
         self._latencies[key].append(latency_ms)
-    
+
     async def check(
         self,
         service_name: str,
         region_id: str,
-    ) -> List[HealthCheckResult]:
+    ) -> list[HealthCheckResult]:
         key = f"{service_name}:{region_id}"
         latencies = self._latencies.get(key, deque())
-        
+
         if not latencies:
             return [HealthCheckResult(
                 check_id=str(uuid.uuid4()),
@@ -154,14 +153,14 @@ class LatencyHealthChecker:
                 healthy=True,
                 message="No latency data available",
             )]
-        
+
         latencies_list = sorted(latencies)
         p = float(self.percentile[1:]) / 100
         index = int(len(latencies_list) * p)
         percentile_value = latencies_list[min(index, len(latencies_list) - 1)]
-        
+
         healthy = percentile_value <= self.threshold_ms
-        
+
         return [HealthCheckResult(
             check_id=str(uuid.uuid4()),
             dimension=HealthDimension.LATENCY,
@@ -179,14 +178,14 @@ class LatencyHealthChecker:
                 "mean": statistics.mean(latencies_list),
             },
         )]
-    
+
     def get_dimension(self) -> HealthDimension:
         return HealthDimension.LATENCY
 
 
 class ErrorRateHealthChecker:
     """Error rate health checker."""
-    
+
     def __init__(
         self,
         threshold: float = 0.05,  # 5%
@@ -194,8 +193,8 @@ class ErrorRateHealthChecker:
     ):
         self.threshold = threshold
         self.window_size = window_size
-        self._requests: Dict[str, deque] = defaultdict(lambda: deque(maxlen=window_size))
-    
+        self._requests: dict[str, deque] = defaultdict(lambda: deque(maxlen=window_size))
+
     def record_request(
         self,
         service_name: str,
@@ -204,15 +203,15 @@ class ErrorRateHealthChecker:
     ) -> None:
         key = f"{service_name}:{region_id}"
         self._requests[key].append(1 if success else 0)
-    
+
     async def check(
         self,
         service_name: str,
         region_id: str,
-    ) -> List[HealthCheckResult]:
+    ) -> list[HealthCheckResult]:
         key = f"{service_name}:{region_id}"
         requests = self._requests.get(key, deque())
-        
+
         if not requests:
             return [HealthCheckResult(
                 check_id=str(uuid.uuid4()),
@@ -224,11 +223,11 @@ class ErrorRateHealthChecker:
                 healthy=True,
                 message="No request data available",
             )]
-        
+
         error_count = sum(1 for r in requests if r == 0)
         error_rate = error_count / len(requests)
         healthy = error_rate <= self.threshold
-        
+
         return [HealthCheckResult(
             check_id=str(uuid.uuid4()),
             dimension=HealthDimension.ERROR_RATE,
@@ -244,14 +243,14 @@ class ErrorRateHealthChecker:
                 "success_count": len(requests) - error_count,
             },
         )]
-    
+
     def get_dimension(self) -> HealthDimension:
         return HealthDimension.ERROR_RATE
 
 
 class ThroughputHealthChecker:
     """Throughput health checker."""
-    
+
     def __init__(
         self,
         min_throughput: float = 10.0,  # requests/sec
@@ -259,13 +258,13 @@ class ThroughputHealthChecker:
     ):
         self.min_throughput = min_throughput
         self.window_seconds = window_seconds
-        self._requests: Dict[str, deque] = defaultdict(deque)
-    
+        self._requests: dict[str, deque] = defaultdict(deque)
+
     def record_request(
         self,
         service_name: str,
         region_id: str,
-        timestamp: datetime = None,
+        timestamp: Optional[datetime] = None,
     ) -> None:
         key = f"{service_name}:{region_id}"
         ts = timestamp or datetime.utcnow()
@@ -274,20 +273,20 @@ class ThroughputHealthChecker:
         cutoff = datetime.utcnow() - timedelta(seconds=self.window_seconds)
         while self._requests[key] and self._requests[key][0] < cutoff:
             self._requests[key].popleft()
-    
+
     async def check(
         self,
         service_name: str,
         region_id: str,
-    ) -> List[HealthCheckResult]:
+    ) -> list[HealthCheckResult]:
         key = f"{service_name}:{region_id}"
         requests = self._requests.get(key, deque())
-        
+
         # Clean old entries
         cutoff = datetime.utcnow() - timedelta(seconds=self.window_seconds)
         while requests and requests[0] < cutoff:
             requests.popleft()
-        
+
         if not requests:
             return [HealthCheckResult(
                 check_id=str(uuid.uuid4()),
@@ -299,10 +298,10 @@ class ThroughputHealthChecker:
                 healthy=False,
                 message="No throughput data available",
             )]
-        
+
         throughput = len(requests) / self.window_seconds
         healthy = throughput >= self.min_throughput
-        
+
         return [HealthCheckResult(
             check_id=str(uuid.uuid4()),
             dimension=HealthDimension.THROUGHPUT,
@@ -317,14 +316,14 @@ class ThroughputHealthChecker:
                 "window_seconds": self.window_seconds,
             },
         )]
-    
+
     def get_dimension(self) -> HealthDimension:
         return HealthDimension.THROUGHPUT
 
 
 class CapacityHealthChecker:
     """Capacity/Resource health checker."""
-    
+
     def __init__(
         self,
         cpu_threshold: float = 0.85,
@@ -334,15 +333,15 @@ class CapacityHealthChecker:
         self.cpu_threshold = cpu_threshold
         self.memory_threshold = memory_threshold
         self.connection_threshold = connection_threshold
-        self._metrics: Dict[str, Dict[str, float]] = {}
-    
+        self._metrics: dict[str, dict[str, float]] = {}
+
     def update_metrics(
         self,
         service_name: str,
         region_id: str,
-        cpu_usage: float = None,
-        memory_usage: float = None,
-        connection_usage: float = None,
+        cpu_usage: Optional[float] = None,
+        memory_usage: Optional[float] = None,
+        connection_usage: Optional[float] = None,
     ) -> None:
         key = f"{service_name}:{region_id}"
         if key not in self._metrics:
@@ -353,17 +352,17 @@ class CapacityHealthChecker:
             self._metrics[key]["memory"] = memory_usage
         if connection_usage is not None:
             self._metrics[key]["connections"] = connection_usage
-    
+
     async def check(
         self,
         service_name: str,
         region_id: str,
-    ) -> List[HealthCheckResult]:
+    ) -> list[HealthCheckResult]:
         key = f"{service_name}:{region_id}"
         metrics = self._metrics.get(key, {})
-        
+
         results = []
-        
+
         # CPU check
         if "cpu" in metrics:
             cpu = metrics["cpu"]
@@ -379,7 +378,7 @@ class CapacityHealthChecker:
                 message=f"CPU usage: {cpu:.1%} (threshold: {self.cpu_threshold:.1%})",
                 metadata={"resource": "cpu"},
             ))
-        
+
         # Memory check
         if "memory" in metrics:
             mem = metrics["memory"]
@@ -395,7 +394,7 @@ class CapacityHealthChecker:
                 message=f"Memory usage: {mem:.1%} (threshold: {self.memory_threshold:.1%})",
                 metadata={"resource": "memory"},
             ))
-        
+
         # Connection check
         if "connections" in metrics:
             conn = metrics["connections"]
@@ -411,7 +410,7 @@ class CapacityHealthChecker:
                 message=f"Connection usage: {conn:.1%} (threshold: {self.connection_threshold:.1%})",
                 metadata={"resource": "connections"},
             ))
-        
+
         if not results:
             results.append(HealthCheckResult(
                 check_id=str(uuid.uuid4()),
@@ -423,16 +422,16 @@ class CapacityHealthChecker:
                 healthy=True,
                 message="No capacity data available",
             ))
-        
+
         return results
-    
+
     def get_dimension(self) -> HealthDimension:
         return HealthDimension.CAPACITY
 
 
 class AvailabilityHealthChecker:
     """Availability health checker (uptime/downtime)."""
-    
+
     def __init__(
         self,
         uptime_threshold: float = 0.999,  # 99.9%
@@ -440,24 +439,24 @@ class AvailabilityHealthChecker:
     ):
         self.uptime_threshold = uptime_threshold
         self.window_hours = window_hours
-        self._downtimes: Dict[str, List[Tuple[datetime, datetime]]] = defaultdict(list)
-        self._current_downtime: Dict[str, Optional[datetime]] = {}
-    
+        self._downtimes: dict[str, list[tuple[datetime, datetime]]] = defaultdict(list)
+        self._current_downtime: dict[str, Optional[datetime]] = {}
+
     def record_downtime_start(
         self,
         service_name: str,
         region_id: str,
-        timestamp: datetime = None,
+        timestamp: Optional[datetime] = None,
     ) -> None:
         key = f"{service_name}:{region_id}"
         ts = timestamp or datetime.utcnow()
         self._current_downtime[key] = ts
-    
+
     def record_downtime_end(
         self,
         service_name: str,
         region_id: str,
-        timestamp: datetime = None,
+        timestamp: Optional[datetime] = None,
     ) -> None:
         key = f"{service_name}:{region_id}"
         ts = timestamp or datetime.utcnow()
@@ -465,35 +464,35 @@ class AvailabilityHealthChecker:
         if start:
             self._downtimes[key].append((start, ts))
             self._current_downtime[key] = None
-    
+
     async def check(
         self,
         service_name: str,
         region_id: str,
-    ) -> List[HealthCheckResult]:
+    ) -> list[HealthCheckResult]:
         key = f"{service_name}:{region_id}"
         now = datetime.utcnow()
         window_start = now - timedelta(hours=self.window_hours)
-        
+
         # Calculate total downtime in window
         total_downtime = timedelta(0)
         for start, end in self._downtimes.get(key, []):
             if end >= window_start:
                 actual_start = max(start, window_start)
                 total_downtime += end - actual_start
-        
+
         # Check current ongoing downtime
         current_start = self._current_downtime.get(key)
         if current_start and current_start >= window_start:
             total_downtime += now - current_start
         elif current_start and current_start < window_start:
             total_downtime += now - window_start
-        
+
         total_window = timedelta(hours=self.window_hours)
         uptime = 1.0 - (total_downtime.total_seconds() / total_window.total_seconds())
         uptime = max(0.0, min(1.0, uptime))
         healthy = uptime >= self.uptime_threshold
-        
+
         return [HealthCheckResult(
             check_id=str(uuid.uuid4()),
             dimension=HealthDimension.AVAILABILITY,
@@ -509,18 +508,18 @@ class AvailabilityHealthChecker:
                 "currently_down": current_start is not None,
             },
         )]
-    
+
     def get_dimension(self) -> HealthDimension:
         return HealthDimension.AVAILABILITY
 
 
 class DependencyHealthChecker:
     """Dependency health checker (downstream services)."""
-    
-    def __init__(self):
-        self._dependencies: Dict[str, List[Tuple[str, str]]] = defaultdict(list)  # service -> [(dep_service, dep_region)]
-        self._dependency_health: Dict[str, bool] = {}
-    
+
+    def __init__(self) -> None:
+        self._dependencies: dict[str, list[tuple[str, str]]] = defaultdict(list)  # service -> [(dep_service, dep_region)]
+        self._dependency_health: dict[str, bool] = {}
+
     def add_dependency(
         self,
         service_name: str,
@@ -530,7 +529,7 @@ class DependencyHealthChecker:
     ) -> None:
         key = f"{service_name}:{region_id}"
         self._dependencies[key].append((dep_service, dep_region))
-    
+
     def update_dependency_health(
         self,
         dep_service: str,
@@ -539,15 +538,15 @@ class DependencyHealthChecker:
     ) -> None:
         key = f"{dep_service}:{dep_region}"
         self._dependency_health[key] = healthy
-    
+
     async def check(
         self,
         service_name: str,
         region_id: str,
-    ) -> List[HealthCheckResult]:
+    ) -> list[HealthCheckResult]:
         key = f"{service_name}:{region_id}"
         deps = self._dependencies.get(key, [])
-        
+
         if not deps:
             return [HealthCheckResult(
                 check_id=str(uuid.uuid4()),
@@ -559,11 +558,11 @@ class DependencyHealthChecker:
                 healthy=True,
                 message="No dependencies configured",
             )]
-        
+
         healthy_count = 0
         total_count = len(deps)
         unhealthy_deps = []
-        
+
         for dep_service, dep_region in deps:
             dep_key = f"{dep_service}:{dep_region}"
             healthy = self._dependency_health.get(dep_key, True)
@@ -571,10 +570,10 @@ class DependencyHealthChecker:
                 healthy_count += 1
             else:
                 unhealthy_deps.append(f"{dep_service}:{dep_region}")
-        
+
         health_ratio = healthy_count / total_count if total_count > 0 else 1.0
         healthy = health_ratio >= 0.8  # 80% dependencies healthy
-        
+
         return [HealthCheckResult(
             check_id=str(uuid.uuid4()),
             dimension=HealthDimension.DEPENDENCY,
@@ -590,14 +589,14 @@ class DependencyHealthChecker:
                 "unhealthy_dependencies": unhealthy_deps,
             },
         )]
-    
+
     def get_dimension(self) -> HealthDimension:
         return HealthDimension.DEPENDENCY
 
 
-class CustomHealthChecker:
+class CustomHealthChecker(HealthChecker):
     """Custom health checker with user-defined function."""
-    
+
     def __init__(
         self,
         name: str,
@@ -607,18 +606,18 @@ class CustomHealthChecker:
         self.name = name
         self.checker_func = checker_func
         self.threshold = threshold
-    
+
     async def check(
         self,
         service_name: str,
         region_id: str,
-    ) -> List[HealthCheckResult]:
+    ) -> list[HealthCheckResult]:
         try:
             if asyncio.iscoroutinefunction(self.checker_func):
                 result = await self.checker_func(service_name, region_id)
             else:
                 result = self.checker_func(service_name, region_id)
-            
+
             if isinstance(result, dict):
                 value = result.get("value", 0.0)
                 healthy = result.get("healthy", True)
@@ -629,7 +628,7 @@ class CustomHealthChecker:
                 healthy = value >= self.threshold
                 message = f"Custom check: {value}"
                 metadata = {}
-            
+
             return [HealthCheckResult(
                 check_id=str(uuid.uuid4()),
                 dimension=HealthDimension.CUSTOM,
@@ -653,7 +652,7 @@ class CustomHealthChecker:
                 message=f"Custom check failed: {e}",
                 metadata={"custom_check": self.name, "error": str(e)},
             )]
-    
+
     def get_dimension(self) -> HealthDimension:
         return HealthDimension.CUSTOM
 
@@ -662,8 +661,8 @@ class HealthScorer:
     """
     Calculates weighted health scores from multiple dimensions.
     """
-    
-    def __init__(self, weights: Dict[HealthDimension, float] = None):
+
+    def __init__(self, weights: Optional[dict[HealthDimension, float]] = None):
         self.weights = weights or {
             HealthDimension.LATENCY: 0.25,
             HealthDimension.ERROR_RATE: 0.25,
@@ -676,15 +675,14 @@ class HealthScorer:
         total = sum(self.weights.values())
         if total > 0:
             self.weights = {k: v / total for k, v in self.weights.items()}
-    
+
     def calculate_score(
         self,
-        checks: List[HealthCheckResult],
-    ) -> Tuple[float, Dict[str, float]]:
+        checks: list[HealthCheckResult],
+    ) -> tuple[float, dict[str, float]]:
         """Calculate overall score and dimension scores."""
-        dimension_scores = {}
-        dimension_weights = defaultdict(float)
-        
+        dimension_scores: dict[HealthDimension, list[float]] = {}
+
         # Group checks by dimension
         for check in checks:
             dim = check.dimension
@@ -705,20 +703,20 @@ class HealthScorer:
             else:
                 score = 0.0
             dimension_scores[dim].append(score)
-        
+
         # Average scores per dimension
         final_dimension_scores = {}
         for dim, scores in dimension_scores.items():
             final_dimension_scores[dim.value] = statistics.mean(scores) if scores else 1.0
-        
+
         # Weighted overall score
         overall_score = 0.0
         for dim, weight in self.weights.items():
             if dim.value in final_dimension_scores:
                 overall_score += final_dimension_scores[dim.value] * weight
-        
+
         return overall_score, final_dimension_scores
-    
+
     def determine_status(self, score: float) -> HealthStatus:
         """Determine overall health status from score."""
         if score >= 0.9:
@@ -742,7 +740,7 @@ class CircuitBreaker:
     """
     Circuit breaker for region-level fault isolation.
     """
-    
+
     def __init__(
         self,
         failure_threshold: int = 5,
@@ -754,18 +752,18 @@ class CircuitBreaker:
         self.success_threshold = success_threshold
         self.timeout = timeout
         self.half_open_requests = half_open_requests
-        
+
         self._state = CircuitBreakerState.CLOSED
         self._failure_count = 0
         self._success_count = 0
         self._last_failure_time: Optional[datetime] = None
         self._half_open_successes = 0
         self._lock = asyncio.Lock()
-    
+
     @property
     def state(self) -> CircuitBreakerState:
         return self._state
-    
+
     @property
     def is_available(self) -> bool:
         if self._state == CircuitBreakerState.CLOSED:
@@ -779,7 +777,7 @@ class CircuitBreaker:
             return False
         else:  # HALF_OPEN
             return True
-    
+
     async def record_success(self) -> None:
         async with self._lock:
             if self._state == CircuitBreakerState.HALF_OPEN:
@@ -791,12 +789,12 @@ class CircuitBreaker:
                     logger.info("Circuit breaker CLOSED (recovered)")
             elif self._state == CircuitBreakerState.CLOSED:
                 self._failure_count = 0
-    
+
     async def record_failure(self) -> None:
         async with self._lock:
             self._failure_count += 1
             self._last_failure_time = datetime.utcnow()
-            
+
             if self._state == CircuitBreakerState.HALF_OPEN:
                 self._state = CircuitBreakerState.OPEN
                 self._half_open_successes = 0
@@ -804,8 +802,8 @@ class CircuitBreaker:
             elif self._state == CircuitBreakerState.CLOSED:
                 if self._failure_count >= self.failure_threshold:
                     self._state = CircuitBreakerState.OPEN
-                    logger.warning(f"Circuit breaker OPEN (threshold reached: {self.failure_count})")
-    
+                    logger.warning(f"Circuit breaker OPEN (threshold reached: {self._failure_count})")
+
     async def allow_request(self) -> bool:
         """Check if request should be allowed."""
         if self._state == CircuitBreakerState.CLOSED:
@@ -822,8 +820,8 @@ class CircuitBreaker:
             return False
         else:  # HALF_OPEN
             return True
-    
-    def get_status(self) -> Dict[str, Any]:
+
+    def get_status(self) -> dict[str, Any]:
         return {
             "state": self._state.value,
             "failure_count": self._failure_count,
@@ -837,35 +835,35 @@ class RegionHealthManager:
     """
     Manages health assessment for all regions and services.
     """
-    
+
     def __init__(
         self,
         check_interval: int = 30,
-        scorer: HealthScorer = None,
+        scorer: Optional[HealthScorer] = None,
     ):
         self.check_interval = check_interval
         self.scorer = scorer or HealthScorer()
-        self._checkers: List[HealthChecker] = []
-        self._custom_checkers: Dict[str, CustomHealthChecker] = {}
-        self._reports: Dict[str, RegionHealthReport] = {}  # service:region -> report
-        self._circuit_breakers: Dict[str, CircuitBreaker] = {}  # service:region -> breaker
-        self._history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
+        self._checkers: list[HealthChecker] = []
+        self._custom_checkers: dict[str, CustomHealthChecker] = {}
+        self._reports: dict[str, RegionHealthReport] = {}  # service:region -> report
+        self._circuit_breakers: dict[str, CircuitBreaker] = {}  # service:region -> breaker
+        self._history: dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
         self._running = False
         self._task: Optional[asyncio.Task] = None
-        self._callbacks: List[Callable] = []
-    
+        self._callbacks: list[Callable] = []
+
     def add_checker(self, checker: HealthChecker) -> None:
         self._checkers.append(checker)
-    
+
     def add_custom_checker(self, name: str, checker: CustomHealthChecker) -> None:
         self._custom_checkers[name] = checker
-    
+
     def get_circuit_breaker(self, service_name: str, region_id: str) -> CircuitBreaker:
         key = f"{service_name}:{region_id}"
         if key not in self._circuit_breakers:
             self._circuit_breakers[key] = CircuitBreaker()
         return self._circuit_breakers[key]
-    
+
     async def check_health(
         self,
         service_name: str,
@@ -873,7 +871,7 @@ class RegionHealthManager:
     ) -> RegionHealthReport:
         """Run all health checks for a service in a region."""
         all_checks = []
-        
+
         # Run built-in checkers
         for checker in self._checkers:
             try:
@@ -891,7 +889,7 @@ class RegionHealthManager:
                     healthy=False,
                     message=f"Check failed: {e}",
                 ))
-        
+
         # Run custom checkers
         for name, checker in self._custom_checkers.items():
             try:
@@ -899,11 +897,11 @@ class RegionHealthManager:
                 all_checks.extend(results)
             except Exception as e:
                 logger.error(f"Custom health check {name} failed: {e}")
-        
+
         # Calculate score and status
         overall_score, dimension_scores = self.scorer.calculate_score(all_checks)
         overall_status = self.scorer.determine_status(overall_score)
-        
+
         # Determine trend
         key = f"{service_name}:{region_id}"
         self._history[key].append(overall_score)
@@ -914,7 +912,7 @@ class RegionHealthManager:
                 trend = "improving"
             elif recent[-1] < recent[0] - 0.1:
                 trend = "degrading"
-        
+
         # Create report
         report = RegionHealthReport(
             region_id=region_id,
@@ -925,69 +923,67 @@ class RegionHealthManager:
             checks=all_checks,
             trend=trend,
         )
-        
+
         self._reports[key] = report
-        
+
         # Check circuit breaker
         breaker = self.get_circuit_breaker(service_name, region_id)
         if overall_status in (HealthStatus.UNHEALTHY, HealthStatus.CRITICAL):
             await breaker.record_failure()
         elif overall_status == HealthStatus.HEALTHY:
             await breaker.record_success()
-        
+
         # Notify callbacks
         for callback in self._callbacks:
             try:
                 await callback(report)
             except Exception as e:
                 logger.error(f"Health callback error: {e}")
-        
+
         return report
-    
-    async def check_all(self, services: List[Tuple[str, str]]) -> List[RegionHealthReport]:
+
+    async def check_all(self, services: list[tuple[str, str]]) -> list[RegionHealthReport]:
         """Check health for multiple service-region pairs."""
         tasks = [self.check_health(svc, reg) for svc, reg in services]
         return await asyncio.gather(*tasks)
-    
+
     def get_report(self, service_name: str, region_id: str) -> Optional[RegionHealthReport]:
         key = f"{service_name}:{region_id}"
         return self._reports.get(key)
-    
-    def get_all_reports(self) -> Dict[str, RegionHealthReport]:
+
+    def get_all_reports(self) -> dict[str, RegionHealthReport]:
         return self._reports.copy()
-    
-    def get_service_health(self, service_name: str) -> List[RegionHealthReport]:
+
+    def get_service_health(self, service_name: str) -> list[RegionHealthReport]:
         return [
             r for k, r in self._reports.items()
             if k.startswith(f"{service_name}:")
         ]
-    
-    def get_region_health(self, region_id: str) -> List[RegionHealthReport]:
+
+    def get_region_health(self, region_id: str) -> list[RegionHealthReport]:
         return [
             r for k, r in self._reports.items()
             if k.endswith(f":{region_id}")
         ]
-    
+
     def add_callback(self, callback: Callable) -> None:
         self._callbacks.append(callback)
-    
+
     async def start(self) -> None:
         """Start periodic health checks."""
         self._running = True
         self._task = asyncio.create_task(self._check_loop())
         logger.info("Region health manager started")
-    
+
     async def stop(self) -> None:
         """Stop health checks."""
         self._running = False
         if self._task:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         logger.info("Region health manager stopped")
-    
+
     async def _check_loop(self) -> None:
         while self._running:
             try:
@@ -1005,15 +1001,15 @@ class HealthBasedRouter:
     """
     Routes traffic based on health scores.
     """
-    
+
     def __init__(self, health_manager: RegionHealthManager):
         self.health_manager = health_manager
         self._min_health_score = 0.5
-    
+
     async def select_region(
         self,
         service_name: str,
-        available_regions: List[str],
+        available_regions: list[str],
         strategy: str = "best_health",
     ) -> Optional[str]:
         """Select best region based on health."""
@@ -1022,21 +1018,21 @@ class HealthBasedRouter:
             report = self.health_manager.get_report(service_name, region_id)
             if report:
                 reports.append((region_id, report))
-        
+
         if not reports:
             return available_regions[0] if available_regions else None
-        
+
         # Filter by circuit breaker
         available = []
         for region_id, report in reports:
             breaker = self.health_manager.get_circuit_breaker(service_name, region_id)
             if breaker.is_available:
                 available.append((region_id, report))
-        
+
         if not available:
             # All circuits open, return primary or first
             return reports[0][0]
-        
+
         if strategy == "best_health":
             available.sort(key=lambda x: x[1].overall_score, reverse=True)
             return available[0][0]
@@ -1052,7 +1048,7 @@ class HealthBasedRouter:
                 return available[0][0]
             # Simple round-robin (would need state in practice)
             return healthy[0][0]
-        
+
         return available[0][0]
 
 
@@ -1072,5 +1068,3 @@ def set_health_manager(manager: RegionHealthManager) -> None:
     _health_manager = manager
 
 
-def get_health_manager() -> RegionHealthManager:
-    return get_health_manager()

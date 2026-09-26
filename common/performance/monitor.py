@@ -5,7 +5,7 @@ Performance Utilities for PyFault framework.
 import time
 from dataclasses import dataclass
 from functools import wraps
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 
 @dataclass
@@ -21,10 +21,10 @@ class PerformanceMetrics:
 class PerformanceMonitor:
     """Performance monitoring utility."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._metrics: dict[str, PerformanceMetrics] = {}
 
-    def record(self, operation: str, duration: float):
+    def record(self, operation: str, duration: float) -> None:
         """Record performance metric."""
         if operation not in self._metrics:
             self._metrics[operation] = PerformanceMetrics()
@@ -44,7 +44,7 @@ class PerformanceMonitor:
         """Get all metrics."""
         return self._metrics.copy()
 
-    def clear(self):
+    def clear(self) -> None:
         """Clear all metrics."""
         self._metrics.clear()
 
@@ -92,13 +92,13 @@ class RateLimiter:
         return self.max_requests - len(self._requests[key])
 
 
-def monitor(operation: str = None):
+def monitor(operation: Optional[str] = None) -> Callable[..., Any]:
     """Decorator for monitoring function performance."""
-    def decorator(func: Callable):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         op_name = operation or func.__name__
 
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             start = time.time()
             result = await func(*args, **kwargs)
             duration = time.time() - start
@@ -111,13 +111,13 @@ def monitor(operation: str = None):
     return decorator
 
 
-def rate_limit(max_requests: int, window_seconds: int):
+def rate_limit(max_requests: int, window_seconds: int) -> Callable[..., Any]:
     """Decorator for rate limiting."""
     limiter = RateLimiter(max_requests, window_seconds)
 
-    def decorator(func: Callable):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             key = f"{func.__name__}:{str(args)}:{str(kwargs)}"
 
             if not limiter.is_allowed(key):

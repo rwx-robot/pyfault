@@ -2,6 +2,7 @@
 Testing Utilities for PyFault framework.
 """
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, Callable, Optional
 
@@ -9,21 +10,21 @@ from typing import Any, Callable, Optional
 class TestModule:
     """Test module for testing PyFault applications."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._fixtures: dict[str, Any] = {}
         self._mocks: dict[str, Callable] = {}
 
-    def fixture(self, name: str = None):
+    def fixture(self, name: Optional[str] = None) -> Callable:
         """Decorator for registering test fixtures."""
-        def decorator(func):
+        def decorator(func: Any) -> Any:
             fixture_name = name or func.__name__
             self._fixtures[fixture_name] = func
             return func
         return decorator
 
-    def mock(self, name: str = None):
+    def mock(self, name: Optional[str] = None) -> Callable:
         """Decorator for registering mocks."""
-        def decorator(func):
+        def decorator(func: Any) -> Any:
             mock_name = name or func.__name__
             self._mocks[mock_name] = func
             return func
@@ -41,31 +42,31 @@ class TestModule:
 class TestClient:
     """Test client for testing HTTP endpoints."""
 
-    def __init__(self, app=None):
+    def __init__(self, app: Any = None):
         self.app = app
         self._headers: dict[str, str] = {}
 
-    def set_header(self, key: str, value: str):
+    def set_header(self, key: str, value: str) -> None:
         """Set request header."""
         self._headers[key] = value
 
-    def get(self, url: str, **kwargs) -> 'TestResponse':
+    def get(self, url: str, **kwargs: Any) -> 'TestResponse':
         """Send GET request."""
         return self._request('GET', url, **kwargs)
 
-    def post(self, url: str, **kwargs) -> 'TestResponse':
+    def post(self, url: str, **kwargs: Any) -> 'TestResponse':
         """Send POST request."""
         return self._request('POST', url, **kwargs)
 
-    def put(self, url: str, **kwargs) -> 'TestResponse':
+    def put(self, url: str, **kwargs: Any) -> 'TestResponse':
         """Send PUT request."""
         return self._request('PUT', url, **kwargs)
 
-    def delete(self, url: str, **kwargs) -> 'TestResponse':
+    def delete(self, url: str, **kwargs: Any) -> 'TestResponse':
         """Send DELETE request."""
         return self._request('DELETE', url, **kwargs)
 
-    def _request(self, method: str, url: str, **kwargs) -> 'TestResponse':
+    def _request(self, method: str, url: str, **kwargs: Any) -> 'TestResponse':
         """Send HTTP request."""
         # Simulated response for testing
         return TestResponse(
@@ -78,7 +79,7 @@ class TestResponse:
     """Test response object."""
 
     def __init__(self, status_code: int = 200, json_data: Any = None,
-                 text: str = None, headers: dict[str, str] = None):
+                 text: Optional[str] = None, headers: Optional[dict[str, str]] = None):
         self.status_code = status_code
         self.json_data = json_data
         self.text = text or ""
@@ -88,7 +89,7 @@ class TestResponse:
         """Get JSON data."""
         return self.json_data
 
-    def raise_for_status(self):
+    def raise_for_status(self) -> None:
         """Raise exception for error status codes."""
         if self.status_code >= 400:
             from pyfault.common.errors.handler import BadRequestException
@@ -113,7 +114,7 @@ class TestResponse:
 
 
 @asynccontextmanager
-async def create_test_app(app_factory: Callable):
+async def create_test_app(app_factory: Callable) -> AsyncIterator[Any]:
     """Create test app context."""
     app = app_factory()
     try:
@@ -126,22 +127,22 @@ async def create_test_app(app_factory: Callable):
 class MockService:
     """Mock service for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._calls: list[tuple[str, tuple, dict]] = []
         self._return_values: dict[str, Any] = {}
 
-    def set_return(self, method: str, value: Any):
+    def set_return(self, method: str, value: Any) -> None:
         """Set return value for method."""
         self._return_values[method] = value
 
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> Any:
         """Get attribute."""
-        def method(*args, **kwargs):
+        def method(*args: Any, **kwargs: Any) -> Any:
             self._calls.append((name, args, kwargs))
             return self._return_values.get(name)
         return method
 
-    def get_calls(self, method: str = None) -> list[tuple[str, tuple, dict]]:
+    def get_calls(self, method: Optional[str] = None) -> list[tuple[str, tuple, dict]]:
         """Get calls made to mock."""
         if method:
             return [c for c in self._calls if c[0] == method]

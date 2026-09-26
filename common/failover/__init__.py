@@ -3,15 +3,16 @@ Failover Management for PyFault framework.
 """
 
 import asyncio
+import contextlib
+import logging
 import time
+import uuid
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, TypeVar, Generic, Callable
-from collections import defaultdict
-import uuid
-import logging
+from typing import Any, Callable, Generic, Optional, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class FailoverConfig:
     """Failover configuration."""
     service_name: str
     primary_region: str
-    backup_regions: List[str]
+    backup_regions: list[str]
     health_check_interval_ms: int = 10000
     failure_threshold: int = 3
     recovery_threshold: int = 2
@@ -68,7 +69,7 @@ class FailoverEvent:
     duration_ms: Optional[int] = None
     success: bool = False
     error_message: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -82,7 +83,7 @@ class HealthCheckResult:
     error_rate: float
     capacity_used: float
     error_message: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class HealthChecker(ABC):
@@ -109,35 +110,34 @@ class HTTPHealthChecker:
         """Perform HTTP health check."""
         import aiohttp
         start = time.time()
-        
+
         try:
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=self.timeout_ms / 1000)
-            ) as session:
-                async with session.get(f"{endpoint}/health") as response:
-                    latency_ms = (time.time() - start) * 1000
-                    
-                    if response.status == 200:
-                        return HealthCheckResult(
-                            service_name=service_name,
-                            region=region,
-                            timestamp=datetime.utcnow(),
-                            healthy=True,
-                            latency_ms=latency_ms,
-                            error_rate=0.0,
-                            capacity_used=0.0,
-                        )
-                    else:
-                        return HealthCheckResult(
-                            service_name=service_name,
-                            region=region,
-                            timestamp=datetime.utcnow(),
-                            healthy=False,
-                            latency_ms=latency_ms,
-                            error_rate=1.0,
-                            capacity_used=0.0,
-                            error_message=f"HTTP {response.status}",
-                        )
+            ) as session, session.get(f"{endpoint}/health") as response:
+                latency_ms = (time.time() - start) * 1000
+
+                if response.status == 200:
+                    return HealthCheckResult(
+                        service_name=service_name,
+                        region=region,
+                        timestamp=datetime.utcnow(),
+                        healthy=True,
+                        latency_ms=latency_ms,
+                        error_rate=0.0,
+                        capacity_used=0.0,
+                    )
+                else:
+                    return HealthCheckResult(
+                        service_name=service_name,
+                        region=region,
+                        timestamp=datetime.utcnow(),
+                        healthy=False,
+                        latency_ms=latency_ms,
+                        error_rate=1.0,
+                        capacity_used=0.0,
+                        error_message=f"HTTP {response.status}",
+                    )
         except asyncio.TimeoutError:
             return HealthCheckResult(
                 service_name=service_name,
@@ -173,7 +173,7 @@ class FailoverPolicy(ABC):
         self,
         service_name: str,
         current_region: str,
-        health_results: Dict[str, "HealthCheckResult"],
+        health_results: dict[str, "HealthCheckResult"],
         config: "FailoverConfig",
     ) -> Optional[str]:
         """Determine if failover should occur and to which region."""
@@ -185,7 +185,7 @@ class FailoverPolicy(ABC):
         service_name: str,
         current_region: str,
         original_region: str,
-        health_results: Dict[str, "HealthCheckResult"],
+        health_results: dict[str, "HealthCheckResult"],
         config: "FailoverConfig",
     ) -> bool:
         """Determine if failback should occur."""
@@ -199,13 +199,13 @@ class PriorityFailoverPolicy:
         self,
         service_name: str,
         current_region: str,
-        health_results: Dict[str, "HealthCheckResult"],
+        health_results: dict[str, "HealthCheckResult"],
         config: "FailoverConfig",
     ) -> Optional[str]:
         """Failover to the first healthy backup region."""
         if current_region not in health_results:
             return None
-        
+
         current_health = health_results[current_region]
         if not current_health.healthy:
             # Find first healthy backup region
@@ -214,22 +214,21 @@ class PriorityFailoverPolicy:
                     backup_health = health_results[backup_region]
                     if backup_health.healthy:
                         return backup_region
-        
+
         # Check if current region is degrading
-        current_health = health_results.get(current_region)
-        if current_health and not current_health.healthy:
+        if not current_health.healthy:
             # Check failure thresholds
             failure_count = 0
-            for region, health in health_results.items():
+            for _region, health in health_results.items():
                 if not health.healthy:
                     failure_count += 1
-            
+
             if failure_count >= config.failure_threshold:
                 # Find first healthy backup
                 for backup_region in config.backup_regions:
                     if backup_region in health_results and health_results[backup_region].healthy:
                         return backup_region
-        
+
         return None
 
     async def should_failback(
@@ -237,19 +236,16 @@ class PriorityFailoverPolicy:
         service_name: str,
         current_region: str,
         original_region: str,
-        health_results: Dict[str, "HealthCheckResult"],
+        health_results: dict[str, "HealthCheckResult"],
         config: "FailoverConfig",
     ) -> bool:
         if not config.auto_failback:
             return False
-        
+
         original_health = health_results.get(original_region)
-        if not original_health or not original_health.healthy:
-            return False
-        
         # Check if original region has been healthy for the required period
         # This would need state tracking in a real implementation
-        return True
+        return bool(original_health and original_health.healthy)
 
 
 class LatencyBasedFailoverPolicy:
@@ -259,7 +255,7 @@ class LatencyBasedFailoverPolicy:
         self,
         service_name: str,
         current_region: str,
-        health_results: Dict[str, "HealthCheckResult"],
+        health_results: dict[str, "HealthCheckResult"],
         config: "FailoverConfig",
     ) -> Optional[str]:
         current_health = health_results.get(current_region)
@@ -271,17 +267,20 @@ class LatencyBasedFailoverPolicy:
             # Find region with lowest latency
             best_region = None
             best_latency = float('inf')
-            
+
             for region, health in health_results.items():
                 if region == current_region:
                     continue
-                if health.healthy and health.latency_ms < config.latency_threshold_ms:
-                    if health.latency_ms < best_latency:
-                        best_latency = health.latency_ms
-                        best_region = region
-            
+                if (
+                    health.healthy
+                    and health.latency_ms < config.latency_threshold_ms
+                    and health.latency_ms < best_latency
+                ):
+                    best_latency = health.latency_ms
+                    best_region = region
+
             return best_region
-        
+
         return None
 
     async def should_failback(
@@ -289,20 +288,23 @@ class LatencyBasedFailoverPolicy:
         service_name: str,
         current_region: str,
         original_region: str,
-        health_results: Dict[str, "HealthCheckResult"],
+        health_results: dict[str, "HealthCheckResult"],
         config: "FailoverConfig",
     ) -> bool:
         if not config.auto_failback:
             return False
-        
+
         original_health = health_results.get(original_region)
         if not original_health or not original_health.healthy:
             return False
-        
+
         current_health = health_results.get(current_region)
         if current_health and current_health.latency_ms <= config.latency_threshold_ms:
             return True
-        
+
+        if current_health is None:
+            return False
+
         return original_health.latency_ms < current_health.latency_ms
 
 
@@ -322,8 +324,8 @@ class FailoverManager:
         self.policy = policy or PriorityFailoverPolicy()
         self._current_region = config.primary_region
         self._original_region = config.primary_region
-        self._health_history: Dict[str, List[HealthCheckResult]] = defaultdict(list)
-        self._failover_events: List[FailoverEvent] = []
+        self._health_history: dict[str, list[HealthCheckResult]] = defaultdict(list)
+        self._failover_events: list[FailoverEvent] = []
         self._running = False
         self._monitor_task: Optional[asyncio.Task] = None
         self._state = FailoverStatus.HEALTHY
@@ -355,10 +357,8 @@ class FailoverManager:
         self._running = False
         if self._monitor_task:
             self._monitor_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._monitor_task
-            except asyncio.CancelledError:
-                pass
         await self.health_checker.close()
         logger.info(f"Failover manager stopped for service: {self.config.service_name}")
 
@@ -377,10 +377,10 @@ class FailoverManager:
     async def _check_health(self) -> None:
         """Check health of all regions."""
         health_results = {}
-        
+
         # Check all regions (primary + backups)
         regions_to_check = [self.config.primary_region] + self.config.backup_regions
-        
+
         for region in regions_to_check:
             try:
                 # Use a default endpoint based on region
@@ -408,7 +408,7 @@ class FailoverManager:
                 health_results,
                 self.config,
             )
-            
+
             if new_region and new_region != self._current_region:
                 await self._perform_failover(new_region, health_results)
 
@@ -422,17 +422,17 @@ class FailoverManager:
                     health_results,
                     self.config,
                 )
-                
+
                 if should_failback:
                     await self._perform_failback(health_results)
 
-    async def _perform_failover(self, target_region: str, health_results: Dict[str, "HealthCheckResult"]) -> None:
+    async def _perform_failover(self, target_region: str, health_results: dict[str, "HealthCheckResult"]) -> None:
         """Perform failover to target region."""
         logger.warning(f"Initiating failover from {self._current_region} to {target_region}")
-        
+
         self._state = FailoverStatus.FAILOVER_IN_PROGRESS
         start_time = time.time()
-        
+
         event = FailoverEvent(
             service_name=self.config.service_name,
             trigger=FailoverTrigger.HEALTH_CHECK_FAILURE,
@@ -440,7 +440,7 @@ class FailoverManager:
             to_region=self.config.backup_regions[0],  # Simplified
             timestamp=datetime.utcnow(),
         )
-        
+
         try:
             # In a real implementation, this would:
             # 1. Update DNS/load balancer
@@ -448,27 +448,27 @@ class FailoverManager:
             # 3. Drain connections from old region
             # 4. Warm up new region
             # 4. Switch traffic
-            
+
             # Simulate failover delay
             await asyncio.sleep(0.1)
-            
+
             old_region = self._current_region
             self._current_region = target_region
             self._state = FailoverStatus.FAILOVER_COMPLETED
             self._failure_count = 0
             self._last_failover_time = datetime.utcnow()
-            
+
             event.success = True
             event.duration_ms = int((time.time() - start_time) * 1000)
             event.to_region = target_region
             self._failover_events.append(event)
-            
+
             logger.info(f"Failover completed from {old_region} to {target_region}")
-            
+
             # Schedule failback if enabled
             if self.config.auto_failback:
                 self._schedule_failback()
-                
+
         except Exception as e:
             self._state = FailoverStatus.FAILOVER_FAILED
             event.success = False
@@ -477,13 +477,13 @@ class FailoverManager:
             self._failover_events.append(event)
             logger.error(f"Failover failed: {e}")
 
-    async def _perform_failback(self, health_results: Dict[str, "HealthCheckResult"]) -> None:
+    async def _perform_failback(self, health_results: dict[str, "HealthCheckResult"]) -> None:
         """Perform failback to primary region."""
         logger.info(f"Initiating failback to {self.config.primary_region}")
-        
+
         self._state = FailoverStatus.RECOVERING
         start_time = time.time()
-        
+
         event = FailoverEvent(
             service_name=self.config.service_name,
             trigger=FailoverTrigger.MANUAL,
@@ -491,23 +491,22 @@ class FailoverManager:
             to_region=self.config.primary_region,
             timestamp=datetime.utcnow(),
         )
-        
+
         try:
             # Simulate failback delay
             await asyncio.sleep(0.1)
-            
-            old_region = self._current_region
+
             self._current_region = self.config.primary_region
             self._state = FailoverStatus.HEALTHY
             self._success_count = 0
             self._failure_count = 0
-            
+
             event.success = True
             event.duration_ms = int((time.time() - start_time) * 1000)
             self._failover_events.append(event)
-            
+
             logger.info(f"Failback completed to {self.config.primary_region}")
-            
+
         except Exception as e:
             self._state = FailoverStatus.FAILOVER_FAILED
             event.success = False
@@ -518,18 +517,17 @@ class FailoverManager:
         """Schedule automatic failback."""
         if self._failback_timer:
             self._failback_timer.cancel()
-        
-        async def failback_after_delay():
+
+        async def failback_after_delay() -> None:
             await asyncio.sleep(self.config.failback_delay_ms / 1000)
             if self._state in (FailoverStatus.FAILOVER_COMPLETED, FailoverStatus.RECOVERING):
-                health_results = {}
                 # This would need actual health checks
                 # For now, just trigger the check
                 await self._check_health()
-        
+
         self._failback_timer = asyncio.create_task(failback_after_delay())
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Get current failover status."""
         return {
             "service_name": self.config.service_name,
@@ -543,7 +541,7 @@ class FailoverManager:
             "failover_events": len(self._failover_events),
         }
 
-    def get_failover_history(self) -> List[Dict[str, Any]]:
+    def get_failover_history(self) -> list[dict[str, Any]]:
         """Get failover event history."""
         return [
             {
@@ -564,7 +562,7 @@ class FailoverManager:
         """Manually trigger failover to a specific region."""
         if target_region not in self.config.backup_regions:
             return False
-        
+
         # Create dummy health results
         health_results = {self.config.primary_region: HealthCheckResult(
             service_name=self.config.service_name,
@@ -575,7 +573,7 @@ class FailoverManager:
             error_rate=1.0,
             capacity_used=1.0,
         )}
-        
+
         await self._perform_failover(target_region, health_results)
         return True
 
@@ -583,7 +581,7 @@ class FailoverManager:
         """Manually trigger failback to primary region."""
         if self._current_region == self.config.primary_region:
             return True
-        
+
         health_results = {
             self.config.primary_region: HealthCheckResult(
                 service_name=self.config.service_name,
@@ -595,7 +593,7 @@ class FailoverManager:
                 capacity_used=0.3,
             )
         }
-        
+
         await self._perform_failback(health_results)
         return True
 
@@ -604,7 +602,7 @@ class FailoverManager:
 
 
 # Global failover manager registry
-_failover_managers: Dict[str, "FailoverManager"] = {}
+_failover_managers: dict[str, "FailoverManager"] = {}
 
 
 def get_failover_manager(service_name: str) -> Optional["FailoverManager"]:
@@ -615,15 +613,15 @@ def get_failover_manager(service_name: str) -> Optional["FailoverManager"]:
 def create_failover_manager(
     service_name: str,
     primary_region: str,
-    backup_regions: List[str],
+    backup_regions: list[str],
     health_checker: Optional[Any] = None,
     policy: Optional[FailoverPolicy] = None,
-    **config_kwargs
+    **config_kwargs: Any
 ) -> "FailoverManager":
     """Create a failover manager for a service."""
     config = FailoverConfig(
         service_name=service_name,
-        primary_region=service_name,
+        primary_region=primary_region,
         backup_regions=backup_regions,
         **config_kwargs
     )
@@ -632,7 +630,7 @@ def create_failover_manager(
     return manager
 
 
-def get_all_failover_managers() -> Dict[str, "FailoverManager"]:
+def get_all_failover_managers() -> dict[str, "FailoverManager"]:
     """Get all failover managers."""
     return _failover_managers.copy()
 

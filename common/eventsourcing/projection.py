@@ -3,14 +3,15 @@ Projections for Event Sourcing.
 """
 
 import asyncio
+import contextlib
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, TypeVar, Set
 from enum import Enum
-from collections import defaultdict
+from typing import Any, Callable, Optional
 
-from pyfault.common.eventsourcing.events import Event, DomainEvent, EventMetadata
+from pyfault.common.eventsourcing.events import Event
 from pyfault.common.eventsourcing.store import EventStore, InMemoryEventStore
 
 
@@ -38,21 +39,21 @@ class ProjectionStatus:
 class Projection(ABC):
     """
     Base class for projections.
-    
+
     Projections transform events into read models optimized for specific queries.
     """
-    
+
     def __init__(
         self,
         name: str,
-        event_types: List[str] = None,
+        event_types: Optional[list[str]] = None,
         projection_type: ProjectionType = ProjectionType.SYNCHRONOUS,
     ):
         self.name = name
         self.event_types = event_types or []
         self.projection_type = projection_type
         self.status = ProjectionStatus(name=name, type=projection_type)
-        self._handlers: Dict[str, Callable] = {}
+        self._handlers: dict[str, Callable] = {}
         self._is_running = False
 
     def handles(self, event_type: str) -> bool:
@@ -67,11 +68,11 @@ class Projection(ABC):
         """Unregister an event handler."""
         self._handlers.pop(event_type, None)
 
-    async def handle_event(self, event) -> None:
+    async def handle_event(self, event: Event) -> None:
         """Handle an event."""
         if not self.handles(event.event_type):
             return
-        
+
         handler = self._handlers.get(event.event_type)
         if handler:
             try:
@@ -84,18 +85,18 @@ class Projection(ABC):
                 self.status.last_error = str(e)
                 self.status.last_updated = datetime.utcnow()
                 raise
-        
+
         self.status.events_processed += 1
         self.status.last_event_id = getattr(event.metadata, 'event_id', None)
         self.status.last_processed_timestamp = datetime.utcnow()
         self.status.last_updated = datetime.utcnow()
 
     @abstractmethod
-    async def project(self, event) -> None:
+    async def project(self, event: Event) -> None:
         """Project an event - to be implemented by subclasses."""
         pass
 
-    def get_state(self) -> Dict[str, Any]:
+    def get_state(self) -> dict[str, Any]:
         """Get projection state for persistence."""
         return {
             "name": self.name,
@@ -106,7 +107,7 @@ class Projection(ABC):
             "errors": self.status.errors,
         }
 
-    def restore_state(self, state: Dict[str, Any]) -> None:
+    def restore_state(self, state: dict[str, Any]) -> None:
         """Restore projection state."""
         self.status.last_event_id = state.get("last_event_id")
         self.status.last_processed_timestamp = datetime.fromisoformat(state["last_processed_timestamp"]) if state.get("last_processed_timestamp") else None
@@ -118,16 +119,16 @@ class ReadModelProjection(Projection):
     """
     Projection that builds a read model (denormalized view).
     """
-    
-    def __init__(self, name: str, event_types: List[str] = None):
+
+    def __init__(self, name: str, event_types: Optional[list[str]] = None):
         super().__init__(name, event_types)
-        self._data: Dict[str, Any] = {}
-        self._indexes: Dict[str, Dict] = defaultdict(dict)
+        self._data: dict[str, Any] = {}
+        self._indexes: dict[str, dict] = defaultdict(dict)
 
     def register_handler(self, event_type: str, handler: Callable) -> None:
         self._handlers[event_type] = handler
 
-    async def project(self, event) -> None:
+    async def project(self, event: Event) -> None:
         """Project event by calling registered handler."""
         await self.handle_event(event)
 
@@ -135,20 +136,20 @@ class ReadModelProjection(Projection):
         """Get entity by key."""
         return self._data.get(key)
 
-    def get_all(self) -> List[Any]:
+    def get_all(self) -> list[Any]:
         return list(self._data.values())
 
-    def query(self, filters: Dict[str, Any] = None) -> List[Any]:
+    def query(self, filters: Optional[dict[str, Any]] = None) -> list[Any]:
         """Query entities with filters."""
         results = list(self._data.values())
-        
+
         if filters:
             for key, value in filters.items():
                 results = [item for item in results if item.get(key) == value]
-        
+
         return results
 
-    def _upsert(self, key: str, entity: Dict[str, Any]) -> None:
+    def _upsert(self, key: str, entity: dict[str, Any]) -> None:
         self._data[key] = entity
         # Update indexes
         for index_name, index in self._indexes.items():
@@ -173,7 +174,7 @@ class ReadModelProjection(Projection):
                 if field_name in entity:
                     self._indexes[field_name][entity[field_name]] = key
 
-    def get_by_index(self, field_name: str, value: Any) -> Optional[Dict]:
+    def get_by_index(self, field_name: str, value: Any) -> Optional[dict]:
         """Get entity by indexed field."""
         index = self._indexes.get(field_name)
         if not index:
@@ -186,30 +187,30 @@ class AggregationProjection(Projection):
     """
     Projection that computes aggregated values.
     """
-    
+
     def __init__(
         self,
         name: str,
-        event_types: List[str] = None,
-        aggregation_functions: Dict[str, Callable] = None,
+        event_types: Optional[list[str]] = None,
+        aggregation_functions: Optional[dict[str, Callable]] = None,
     ):
         super().__init__(name, event_types)
-        self._aggregations: Dict[str, Any] = {}
+        self._aggregations: dict[str, Any] = {}
         self._aggregation_functions = aggregation_functions or {}
-        self._events: List[Event] = []
+        self._events: list[Event] = []
 
     def register_aggregation(self, name: str, func: Callable) -> None:
         """Register an aggregation function."""
         self._aggregation_functions[name] = func
 
-    async def handle_event(self, event) -> None:
+    async def handle_event(self, event: Event) -> None:
         """Handle an event and update aggregations."""
         if not self.handles(event.event_type):
             return
-        
+
         # Store event for aggregation computation
         self._events.append(event)
-        
+
         # Recompute aggregations
         for name, func in self._aggregation_functions.items():
             try:
@@ -222,13 +223,13 @@ class AggregationProjection(Projection):
         # Call parent handle_event for status updates
         await super().handle_event(event)
 
-    async def project(self, event) -> None:
+    async def project(self, event: Event) -> None:
         await self.handle_event(event)
 
     def get_aggregation(self, name: str) -> Any:
         return self._aggregations.get(name)
 
-    def get_all_aggregations(self) -> Dict[str, Any]:
+    def get_all_aggregations(self) -> dict[str, Any]:
         return self._aggregations.copy()
 
 
@@ -236,10 +237,10 @@ class ProjectionManager:
     """
     Manages multiple projections.
     """
-    
-    def __init__(self, event_store: EventStore = None):
+
+    def __init__(self, event_store: Optional[EventStore] = None):
         self.event_store = event_store or InMemoryEventStore()
-        self._projections: Dict[str, Projection] = {}
+        self._projections: dict[str, Projection] = {}
         self._running = False
         self._processing_task: Optional[asyncio.Task] = None
         self._poll_interval = 1.0  # seconds
@@ -259,20 +260,20 @@ class ProjectionManager:
         """Get a projection by name."""
         return self._projections.get(name)
 
-    def get_all_projections(self) -> List[Projection]:
+    def get_all_projections(self) -> list[Projection]:
         return list(self._projections.values())
 
-    def get_status(self) -> Dict[str, ProjectionStatus]:
+    def get_status(self) -> dict[str, ProjectionStatus]:
         """Get status of all projections."""
         return {name: p.status for name, p in self._projections.items()}
 
-    async def process_event(self, event) -> None:
+    async def process_event(self, event: Event) -> None:
         """Process a single event through all relevant projections."""
         for projection in self._projections.values():
             if projection.handles(event.event_type):
                 await projection.handle_event(event)
 
-    async def process_events_batch(self, events: List) -> None:
+    async def process_events_batch(self, events: list) -> None:
         """Process a batch of events."""
         for event in events:
             await self.process_event(event)
@@ -288,10 +289,8 @@ class ProjectionManager:
         self._running = False
         if self._processing_task:
             self._processing_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._processing_task
-            except asyncio.CancelledError:
-                pass
 
     async def _process_loop(self) -> None:
         """Background processing loop for async projections."""
@@ -302,7 +301,7 @@ class ProjectionManager:
                     if projection.projection_type == ProjectionType.ASYNCHRONOUS and projection.status.is_running:
                         # Would fetch and process new events here
                         pass
-                
+
                 await asyncio.sleep(self._poll_interval)
             except asyncio.CancelledError:
                 break
@@ -313,35 +312,35 @@ class ProjectionManager:
     async def replay(
         self,
         projection_name: str,
-        from_event_id: str = None,
-        from_timestamp: datetime = None,
+        from_event_id: Optional[str] = None,
+        from_timestamp: Optional[datetime] = None,
     ) -> None:
         """Replay events for a specific projection."""
         projection = self._projections.get(projection_name)
         if not projection:
             raise ValueError(f"Projection not found: {projection_name}")
-        
+
         # Reset projection state
         projection.status = ProjectionStatus(
             name=projection.name,
             type=projection.projection_type,
         )
-        
+
         # Fetch and process events
         events = await self.event_store.get_all_events(
             from_timestamp=projection.status.last_processed_timestamp,
         )
-        
-        await projection.process_events_batch(events)
 
-    def get_projection_state(self, name: str) -> Optional[Dict[str, Any]]:
+        await self.process_events_batch(events)
+
+    def get_projection_state(self, name: str) -> Optional[dict[str, Any]]:
         """Get serialized projection state."""
         projection = self._projections.get(name)
         if not projection:
             return None
         return projection.get_state()
 
-    def restore_projection_state(self, name: str, state: Dict[str, Any]) -> bool:
+    def restore_projection_state(self, name: str, state: dict[str, Any]) -> bool:
         """Restore projection state."""
         projection = self._projections.get(name)
         if not projection:
@@ -352,14 +351,14 @@ class ProjectionManager:
 
 class EventHandlerRegistry:
     """Registry for event handlers across projections."""
-    
-    def __init__(self):
-        self._handlers: Dict[str, List[Callable]] = defaultdict(list)
-    
+
+    def __init__(self) -> None:
+        self._handlers: dict[str, list[Callable]] = defaultdict(list)
+
     def register(self, event_type: str, handler: Callable) -> None:
         """Register a handler for an event type."""
         self._handlers[event_type].append(handler)
-    
+
     def unregister(self, event_type: str, handler: Callable) -> bool:
         """Unregister a handler."""
         if event_type in self._handlers:
@@ -369,11 +368,11 @@ class EventHandlerRegistry:
             except ValueError:
                 pass
         return False
-    
-    def get_handlers(self, event_type: str) -> List[Callable]:
+
+    def get_handlers(self, event_type: str) -> list[Callable]:
         return self._handlers.get(event_type, [])
-    
-    def handle_event(self, event) -> List[Any]:
+
+    def handle_event(self, event: Event) -> list[Any]:
         """Execute all handlers for an event."""
         results = []
         for handler in self._handlers.get(event.event_type, []):
@@ -383,6 +382,6 @@ class EventHandlerRegistry:
                     # Would need to be awaited in async context
                     pass
                 results.append(result)
-            except Exception as e:
+            except Exception:
                 pass
         return results

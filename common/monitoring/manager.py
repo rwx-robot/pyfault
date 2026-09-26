@@ -5,7 +5,7 @@ Monitoring Module for PyFault framework.
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable, Optional
 
 
 @dataclass
@@ -28,16 +28,16 @@ class Metric:
 class HealthCheck:
     """Health check manager."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._checks: dict[str, Any] = {}
 
-    def register_check(self, name: str, check_fn):
+    def register_check(self, name: str, check_fn: Any) -> None:
         """Register a health check."""
         self._checks[name] = check_fn
 
-    def HealthCheck(self, name: str):
+    def HealthCheck(self, name: str) -> Callable[..., Any]:
         """Decorator for registering a health check."""
-        def decorator(func):
+        def decorator(func: Any) -> Any:
             self._checks[name] = func
             return func
         return decorator
@@ -65,10 +65,10 @@ class HealthCheck:
 class MetricsCollector:
     """Metrics collector."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._metrics: list[Metric] = []
 
-    def record(self, name: str, value: float, tags: dict[str, str] = None):
+    def record(self, name: str, value: float, tags: Optional[dict[str, str]] = None) -> None:
         """Record a metric."""
         metric = Metric(
             name=name,
@@ -78,20 +78,20 @@ class MetricsCollector:
         )
         self._metrics.append(metric)
 
-    def counter(self, name: str, tags: dict[str, str] = None):
+    def counter(self, name: str, tags: Optional[dict[str, str]] = None) -> Callable[..., Any]:
         """Decorator for counting function calls."""
-        def decorator(func):
-            async def wrapper(*args, **kwargs):
+        def decorator(func: Any) -> Any:
+            async def wrapper(*args: Any, **kwargs: Any) -> Any:
                 result = await func(*args, **kwargs)
                 self.record(name, 1, tags)
                 return result
             return wrapper
         return decorator
 
-    def histogram(self, name: str, tags: dict[str, str] = None):
+    def histogram(self, name: str, tags: Optional[dict[str, str]] = None) -> Callable[..., Any]:
         """Decorator for measuring function duration."""
-        def decorator(func):
-            async def wrapper(*args, **kwargs):
+        def decorator(func: Any) -> Any:
+            async def wrapper(*args: Any, **kwargs: Any) -> Any:
                 start = time.time()
                 result = await func(*args, **kwargs)
                 duration = time.time() - start
@@ -100,7 +100,7 @@ class MetricsCollector:
             return wrapper
         return decorator
 
-    def get_metrics(self, name: str = None) -> list[Metric]:
+    def get_metrics(self, name: Optional[str] = None) -> list[Metric]:
         """Get metrics."""
         if name:
             return [m for m in self._metrics if m.name == name]
@@ -110,7 +110,7 @@ class MetricsCollector:
 class MonitoringModule:
     """Monitoring module for dependency injection."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.health_check = HealthCheck()
         self.metrics = MetricsCollector()
 

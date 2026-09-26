@@ -3,15 +3,13 @@ Event Store for Event Sourcing.
 """
 
 import json
-import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Type, TypeVar
 from enum import Enum
+from typing import Any, Optional, TypeVar, cast
 
-from pyfault.common.eventsourcing.events import Event, DomainEvent, EventMetadata
-
+from pyfault.common.eventsourcing.events import DomainEvent, Event, EventMetadata
 
 E = TypeVar("E", bound="Event")
 
@@ -36,10 +34,10 @@ class StoredEvent:
     correlation_id: Optional[str]
     causation_id: Optional[str]
     user_id: Optional[str]
-    payload: Dict
-    metadata: Dict = field(default_factory=dict)
+    payload: dict
+    metadata: dict = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "event_id": self.event_id,
             "aggregate_id": self.aggregate_id,
@@ -70,14 +68,12 @@ class StoredEvent:
             metadata=event.metadata.to_dict(),
         )
 
-    def to_event(self, event_class: Type = None) -> "Event":
+    def to_event(self, event_class: Optional[type] = None) -> "Event":
         """Convert back to Event."""
-        from pyfault.common.eventsourcing.events import Event, DomainEvent, EventMetadata, EventFactory
-        
-        metadata = EventMetadata.from_dict(self.metadata)
-        
+        from pyfault.common.eventsourcing.events import EventFactory
+
         if self.event_type.startswith("domain."):
-            event = DomainEvent(
+            event: Event = DomainEvent(
                 aggregate_id=self.aggregate_id,
                 aggregate_type=self.aggregate_type,
                 event_type=self.event_type,
@@ -94,20 +90,21 @@ class StoredEvent:
                 version=self.version,
                 metadata=EventMetadata.from_dict(self.metadata),
             )
-        
-        event._version = self.version
+
+        event_dyn: Any = event
+        event_dyn._version = self.version
         return event
 
 
 class EventStore(ABC):
     """
     Abstract event store interface.
-    
+
     Event stores are append-only stores that persist events as an immutable log.
     """
 
     @abstractmethod
-    async def append(self, events: List[Event]) -> None:
+    async def append(self, events: list[Event]) -> None:
         """Append events to the store."""
         pass
 
@@ -117,12 +114,12 @@ class EventStore(ABC):
         aggregate_id: str,
         from_version: int = 0,
         to_version: Optional[int] = None,
-    ) -> List[Event]:
+    ) -> list[Event]:
         """Get events for an aggregate."""
         pass
 
     @abstractmethod
-    async def get_events_by_correlation_id(self, correlation_id: str) -> List[Event]:
+    async def get_events_by_correlation_id(self, correlation_id: str) -> list[Event]:
         """Get events by correlation ID."""
         pass
 
@@ -133,7 +130,7 @@ class EventStore(ABC):
         from_timestamp: Optional[datetime] = None,
         to_timestamp: Optional[datetime] = None,
         limit: int = 100,
-    ) -> List[Event]:
+    ) -> list[Event]:
         """Get events by type within time range."""
         pass
 
@@ -143,7 +140,7 @@ class EventStore(ABC):
         from_timestamp: Optional[datetime] = None,
         to_timestamp: Optional[datetime] = None,
         limit: int = 100,
-    ) -> List[Event]:
+    ) -> list[Event]:
         """Get all events within time range."""
         pass
 
@@ -161,40 +158,40 @@ class EventStore(ABC):
 class InMemoryEventStore(EventStore):
     """
     In-memory event store implementation.
-    
+
     Suitable for development, testing, and single-instance deployments.
     """
-    
-    def __init__(self):
-        self._events: Dict[str, List[StoredEvent]] = {}
-        self._by_correlation: Dict[str, List[str]] = {}
-        self._by_type: Dict[str, List[str]] = {}
-        self._all_events: List[str] = []
-        self._aggregate_versions: Dict[str, int] = {}
+
+    def __init__(self) -> None:
+        self._events: dict[str, list[StoredEvent]] = {}
+        self._by_correlation: dict[str, list[str]] = {}
+        self._by_type: dict[str, list[str]] = {}
+        self._all_events: list[str] = []
+        self._aggregate_versions: dict[str, int] = {}
 
     def _store_event(self, event: "Event") -> None:
         """Store an event in memory."""
         stored = StoredEvent.from_event(event)
-        
+
         # Index by aggregate
         if event.aggregate_id not in self._events:
             self._events[event.aggregate_id] = []
         self._events[event.aggregate_id].append(stored)
-        
+
         # Index by correlation ID
         if stored.correlation_id:
             if stored.correlation_id not in self._by_correlation:
                 self._by_correlation[stored.correlation_id] = []
             self._by_correlation[stored.correlation_id].append(stored.event_id)
-        
+
         # Index by type
         if stored.event_type not in self._by_type:
             self._by_type[stored.event_type] = []
         self._by_type[stored.event_type].append(stored.event_id)
-        
+
         # Track all events
         self._all_events.append(stored.event_id)
-        
+
         # Update aggregate version
         if event.aggregate_id not in self._aggregate_versions:
             self._aggregate_versions[event.aggregate_id] = 0
@@ -203,7 +200,7 @@ class InMemoryEventStore(EventStore):
             event.version
         )
 
-    async def append(self, events: List["Event"]) -> None:
+    async def append(self, events: list["Event"]) -> None:
         for event in events:
             self._store_event(event)
 
@@ -212,22 +209,22 @@ class InMemoryEventStore(EventStore):
         aggregate_id: str,
         from_version: int = 0,
         to_version: Optional[int] = None,
-    ) -> List["Event"]:
+    ) -> list["Event"]:
         if aggregate_id not in self._events:
             return []
-        
+
         stored_events = self._events[aggregate_id]
         events = [e.to_event() for e in stored_events if e.version > from_version]
-        
+
         if to_version is not None:
             events = [e for e in events if e.version <= to_version]
-        
+
         return sorted(events, key=lambda e: e.version)
 
-    async def get_events_by_correlation_id(self, correlation_id: str) -> List["Event"]:
+    async def get_events_by_correlation_id(self, correlation_id: str) -> list["Event"]:
         if correlation_id not in self._by_correlation:
             return []
-        
+
         events = []
         for event_id in self._by_correlation[correlation_id]:
             # Find event across all aggregates
@@ -236,7 +233,7 @@ class InMemoryEventStore(EventStore):
                     if stored.event_id == event_id:
                         events.append(stored.to_event())
                         break
-        
+
         return sorted(events, key=lambda e: e.metadata.timestamp)
 
     async def get_events_by_type(
@@ -245,10 +242,10 @@ class InMemoryEventStore(EventStore):
         from_timestamp: Optional[datetime] = None,
         to_timestamp: Optional[datetime] = None,
         limit: int = 100,
-    ) -> List["Event"]:
+    ) -> list["Event"]:
         if event_type not in self._by_type:
             return []
-        
+
         events = []
         for event_id in self._by_type[event_type][-limit:]:
             for aggregate_events in self._events.values():
@@ -261,7 +258,7 @@ class InMemoryEventStore(EventStore):
                             continue
                         events.append(event)
                         break
-        
+
         return sorted(events, key=lambda e: e.metadata.timestamp, reverse=True)[:limit]
 
     async def get_all_events(
@@ -269,7 +266,7 @@ class InMemoryEventStore(EventStore):
         from_timestamp: Optional[datetime] = None,
         to_timestamp: Optional[datetime] = None,
         limit: int = 100,
-    ) -> List["Event"]:
+    ) -> list["Event"]:
         events = []
         for event_id in self._all_events[-limit:]:
             for aggregate_events in self._events.values():
@@ -282,7 +279,7 @@ class InMemoryEventStore(EventStore):
                             continue
                         events.append(event)
                         break
-        
+
         return sorted(events, key=lambda e: e.metadata.timestamp, reverse=True)[:limit]
 
     async def get_aggregate_version(self, aggregate_id: str) -> int:
@@ -300,7 +297,7 @@ class InMemoryEventStore(EventStore):
         self._all_events.clear()
         self._aggregate_versions.clear()
 
-    def get_all_aggregates(self) -> List[str]:
+    def get_all_aggregates(self) -> list[str]:
         """Get all aggregate IDs."""
         return list(self._events.keys())
 
@@ -308,10 +305,10 @@ class InMemoryEventStore(EventStore):
 class PostgresEventStore(EventStore):
     """
     PostgreSQL event store implementation.
-    
+
     Uses a single table with JSONB for flexible event storage.
     """
-    
+
     def __init__(
         self,
         connection_string: str,
@@ -321,18 +318,18 @@ class PostgresEventStore(EventStore):
         self.connection_string = connection_string
         self.table_name = table_name
         self.schema_name = schema_name
-        self._pool = None
-    
+        self._pool: Any = None
+
     async def initialize(self) -> None:
         """Initialize the database connection and create tables."""
         import asyncpg
-        
+
         self._pool = await asyncpg.create_pool(self.connection_string)
-        
+
         async with self._pool.acquire() as conn:
             await conn.execute(f"""
                 CREATE SCHEMA IF NOT EXISTS {self.schema_name};
-                
+
                 CREATE TABLE IF NOT EXISTS {self.schema_name}.{self.table_name} (
                     event_id UUID PRIMARY KEY,
                     aggregate_id UUID NOT NULL,
@@ -347,54 +344,52 @@ class PostgresEventStore(EventStore):
                     metadata JSONB DEFAULT '{{}}'::jsonb,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 );
-                
-                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_aggregate 
+
+                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_aggregate
                     ON {self.schema_name}.{self.table_name} (aggregate_id);
-                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_correlation 
+                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_correlation
                     ON {self.schema_name}.{self.table_name} (correlation_id);
-                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_type 
+                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_type
                     ON {self.schema_name}.{self.table_name} (event_type);
-                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_timestamp 
+                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_timestamp
                     ON {self.schema_name}.{self.table_name} (timestamp);
-                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_aggregate_version 
+                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_aggregate_version
                     ON {self.schema_name}.{self.table_name} (aggregate_id, version);
             """)
 
-    async def append(self, events: List["Event"]) -> None:
-        import asyncpg
-        
-        async with self._pool.acquire() as conn:
-            async with conn.transaction():
-                for event in events:
-                    stored = StoredEvent.from_event(event)
-                    await conn.execute(f"""
+    async def append(self, events: list["Event"]) -> None:
+
+        async with self._pool.acquire() as conn, conn.transaction():
+            for event in events:
+                stored = StoredEvent.from_event(event)
+                await conn.execute(f"""
                         INSERT INTO {self.schema_name}.{self.table_name} (
                             event_id, aggregate_id, aggregate_type, event_type,
                             version, timestamp, correlation_id, causation_id,
                             user_id, payload, metadata
                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
                     """,
-                        stored.event_id,
-                        stored.aggregate_id,
-                        stored.aggregate_type,
-                        stored.event_type,
-                        stored.version,
-                        stored.timestamp,
-                        stored.correlation_id,
-                        stored.causation_id,
-                        stored.user_id,
-                        json.dumps(stored.payload),
-                        json.dumps(stored.metadata),
-                    )
+                    stored.event_id,
+                    stored.aggregate_id,
+                    stored.aggregate_type,
+                    stored.event_type,
+                    stored.version,
+                    stored.timestamp,
+                    stored.correlation_id,
+                    stored.causation_id,
+                    stored.user_id,
+                    json.dumps(stored.payload),
+                    json.dumps(stored.metadata),
+                )
 
-    def _row_to_event(self, row: Dict) -> "Event":
+    def _row_to_event(self, row: dict) -> "Event":
         """Convert database row to Event."""
-        from pyfault.common.eventsourcing.events import Event, DomainEvent, EventFactory, EventMetadata
-        
-        metadata = EventMetadata.from_dict(row["metadata"])
-        
+        from pyfault.common.eventsourcing.events import EventFactory
+
+        _metadata = EventMetadata.from_dict(row["metadata"])
+
         if row["event_type"].startswith("domain."):
-            event = DomainEvent(
+            event: Event = DomainEvent(
                 aggregate_id=row["aggregate_id"],
                 aggregate_type=row["aggregate_type"],
                 event_type=row["event_type"],
@@ -411,8 +406,9 @@ class PostgresEventStore(EventStore):
                 version=row["version"],
                 metadata=EventMetadata.from_dict(row["metadata"]),
             )
-        
-        event._version = row["version"]
+
+        event_dyn: Any = event
+        event_dyn._version = row["version"]
         return event
 
     async def get_events(
@@ -420,39 +416,37 @@ class PostgresEventStore(EventStore):
         aggregate_id: str,
         from_version: int = 0,
         to_version: Optional[int] = None,
-    ) -> List["Event"]:
-        import asyncpg
-        
+    ) -> list["Event"]:
+
         query = f"""
             SELECT * FROM {self.schema_name}.{self.table_name}
             WHERE aggregate_id = $1 AND version > $2
         """
         params = [aggregate_id, from_version]
-        
+
         if to_version is not None:
             query += " AND version <= $3"
             # We'll handle this in Python for simplicity
-        
+
         query += " ORDER BY version ASC"
-        
+
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(query, *params)
             events = [self._row_to_event(dict(row)) for row in rows]
-            
+
             if to_version is not None:
                 events = [e for e in events if e.version <= to_version]
-            
+
             return events
 
-    async def get_events_by_correlation_id(self, correlation_id: str) -> List["Event"]:
-        import asyncpg
-        
+    async def get_events_by_correlation_id(self, correlation_id: str) -> list["Event"]:
+
         query = f"""
             SELECT * FROM {self.schema_name}.{self.table_name}
             WHERE correlation_id = $1
             ORDER BY timestamp ASC
         """
-        
+
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(query, correlation_id)
             return [self._row_to_event(dict(row)) for row in rows]
@@ -463,29 +457,28 @@ class PostgresEventStore(EventStore):
         from_timestamp: Optional[datetime] = None,
         to_timestamp: Optional[datetime] = None,
         limit: int = 100,
-    ) -> List["Event"]:
-        import asyncpg
-        
+    ) -> list["Event"]:
+
         query = f"""
             SELECT * FROM {self.schema_name}.{self.table_name}
             WHERE event_type = $1
         """
-        params = [event_type]
+        params: list[Any] = [event_type]
         param_idx = 2
-        
+
         if from_timestamp:
             query += f" AND timestamp >= ${param_idx}"
             params.append(from_timestamp)
             param_idx += 1
-        
+
         if to_timestamp:
             query += f" AND timestamp <= ${param_idx}"
             params.append(to_timestamp)
             param_idx += 1
-        
+
         query += f" ORDER BY timestamp DESC LIMIT ${param_idx}"
         params.append(limit)
-        
+
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(query, *params)
             return [self._row_to_event(dict(row)) for row in rows]
@@ -495,41 +488,39 @@ class PostgresEventStore(EventStore):
         from_timestamp: Optional[datetime] = None,
         to_timestamp: Optional[datetime] = None,
         limit: int = 100,
-    ) -> List["Event"]:
-        import asyncpg
-        
+    ) -> list["Event"]:
+
         query = f"""
             SELECT * FROM {self.schema_name}.{self.table_name}
             WHERE 1=1
         """
-        params = []
+        params: list[Any] = []
         param_idx = 1
-        
+
         if from_timestamp:
             query += f" AND timestamp >= ${param_idx}"
             params.append(from_timestamp)
             param_idx += 1
-        
+
         if to_timestamp:
             query += f" AND timestamp <= ${param_idx}"
             params.append(to_timestamp)
             param_idx += 1
-        
+
         query += f" ORDER BY timestamp DESC LIMIT ${param_idx}"
         params.append(limit)
-        
+
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(query, *params)
             return [self._row_to_event(dict(row)) for row in rows]
 
     async def get_aggregate_version(self, aggregate_id: str) -> int:
-        import asyncpg
-        
+
         query = f"""
             SELECT MAX(version) FROM {self.schema_name}.{self.table_name}
             WHERE aggregate_id = $1
         """
-        
+
         async with self._pool.acquire() as conn:
             result = await conn.fetchval(query, aggregate_id)
             return result or 0
@@ -541,16 +532,16 @@ class PostgresEventStore(EventStore):
 
 class EventStoreFactory:
     """Factory for creating event stores."""
-    
+
     @staticmethod
     def create(
         store_type: EventStoreType,
-        **kwargs
+        **kwargs: Any
     ) -> EventStore:
         if store_type == EventStoreType.MEMORY:
             return InMemoryEventStore()
         elif store_type == EventStoreType.POSTGRES:
-            return PostgresEventStore(kwargs.get("connection_string"))
+            return PostgresEventStore(cast("str", kwargs.get("connection_string")))
         elif store_type == EventStoreType.MONGODB:
             raise NotImplementedError("MongoDB event store not yet implemented")
         elif store_type == EventStoreType.REDIS:

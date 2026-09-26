@@ -2,11 +2,17 @@
 Database Session Management for PyFault framework.
 """
 
+from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager, contextmanager
-from typing import Any, AsyncGenerator, Generator, Optional
+from typing import Optional
 
-from sqlalchemy import create_engine
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy import Engine, create_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import Session, sessionmaker
 
 
@@ -29,13 +35,13 @@ class SessionManager:
         self.pool_timeout = pool_timeout
         self.pool_recycle = pool_recycle
 
-        self._sync_engine = None
-        self._async_engine = None
-        self._sync_session_factory = None
-        self._async_session_factory = None
+        self._sync_engine: Optional[Engine] = None
+        self._async_engine: Optional[AsyncEngine] = None
+        self._sync_session_factory: Optional[sessionmaker[Session]] = None
+        self._async_session_factory: Optional[async_sessionmaker[AsyncSession]] = None
 
     @property
-    def sync_engine(self):
+    def sync_engine(self) -> Engine:
         """Get or create synchronous engine."""
         if self._sync_engine is None:
             self._sync_engine = create_engine(
@@ -49,7 +55,7 @@ class SessionManager:
         return self._sync_engine
 
     @property
-    def async_engine(self):
+    def async_engine(self) -> AsyncEngine:
         """Get or create asynchronous engine."""
         if self._async_engine is None:
             # Convert sync URL to async if needed
@@ -72,7 +78,7 @@ class SessionManager:
         return self._async_engine
 
     @property
-    def sync_session_factory(self) -> sessionmaker:
+    def sync_session_factory(self) -> sessionmaker[Session]:
         """Get or create synchronous session factory."""
         if self._sync_session_factory is None:
             self._sync_session_factory = sessionmaker(
@@ -82,7 +88,7 @@ class SessionManager:
         return self._sync_session_factory
 
     @property
-    def async_session_factory(self) -> async_sessionmaker:
+    def async_session_factory(self) -> async_sessionmaker[AsyncSession]:
         """Get or create asynchronous session factory."""
         if self._async_session_factory is None:
             self._async_session_factory = async_sessionmaker(
@@ -126,7 +132,7 @@ class SessionManager:
         finally:
             await session.close()
 
-    def close(self):
+    def close(self) -> None:
         """Close all engines."""
         if self._sync_engine:
             self._sync_engine.dispose()

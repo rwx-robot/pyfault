@@ -15,7 +15,7 @@ class HttpAdapter:
     HTTP Adapter for handling HTTP requests.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._routes: list[dict] = []  # Store route info before building
         self.middleware: list[Callable] = []
         self._controllers: dict[type, Any] = {}
@@ -25,7 +25,7 @@ class HttpAdapter:
         """Return routes for backward compatibility."""
         return self._routes
 
-    def register_controller(self, controller_class: type, instance: Any):
+    def register_controller(self, controller_class: type, instance: Any) -> None:
         """Register a controller instance and bind its methods to routes."""
         self._controllers[controller_class] = instance
         # Update existing routes to use bound methods
@@ -38,7 +38,7 @@ class HttpAdapter:
                     route_info['handler'] = attr
                     break
 
-    def add_route(self, method: str, path: str, handler: Callable):
+    def add_route(self, method: str, path: str, handler: Callable) -> None:
         """Add a route."""
         self._routes.append({
             'method': method,
@@ -59,7 +59,12 @@ class HttpAdapter:
             sig = inspect.signature(handler)
             handler_params = set(sig.parameters.keys())
 
-            async def endpoint(request: Request, handler=handler, handler_params=handler_params, sig=sig):
+            async def endpoint(
+                request: Request,
+                handler: Callable[..., Any] = handler,
+                handler_params: set[str] = handler_params,
+                sig: inspect.Signature = sig,
+            ) -> JSONResponse:
                 # Get path parameters
                 path_params = request.path_params
 
@@ -89,11 +94,11 @@ class HttpAdapter:
                         param = sig.parameters.get(key)
                         if param and param.annotation != inspect.Parameter.empty:
                             try:
-                                if param.annotation == int:
+                                if param.annotation is int:
                                     value = int(value)
-                                elif param.annotation == float:
+                                elif param.annotation is float:
                                     value = float(value)
-                                elif param.annotation == bool:
+                                elif param.annotation is bool:
                                     value = value.lower() in ('true', '1', 'yes')
                             except (ValueError, AttributeError):
                                 pass
@@ -127,30 +132,30 @@ class HttpAdapter:
 
         return Starlette(routes=routes)
 
-    def get(self, path: str):
+    def get(self, path: str) -> Callable[..., Any]:
         """Decorator for GET route."""
-        def decorator(func: Callable):
+        def decorator(func: Callable) -> Any:
             self.add_route('GET', path, func)
             return func
         return decorator
 
-    def post(self, path: str):
+    def post(self, path: str) -> Callable[..., Any]:
         """Decorator for POST route."""
-        def decorator(func: Callable):
+        def decorator(func: Callable) -> Any:
             self.add_route('POST', path, func)
             return func
         return decorator
 
-    def put(self, path: str):
+    def put(self, path: str) -> Callable[..., Any]:
         """Decorator for PUT route."""
-        def decorator(func: Callable):
+        def decorator(func: Callable) -> Any:
             self.add_route('PUT', path, func)
             return func
         return decorator
 
-    def delete(self, path: str):
+    def delete(self, path: str) -> Callable[..., Any]:
         """Decorator for DELETE route."""
-        def decorator(func: Callable):
+        def decorator(func: Callable) -> Any:
             self.add_route('DELETE', path, func)
             return func
         return decorator

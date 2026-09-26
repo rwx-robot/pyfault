@@ -2,6 +2,9 @@
 Built-in Plugins for PyFault framework.
 """
 
+import inspect
+from typing import Any, Optional
+
 from pyfault.common.plugins.base import BasePlugin, PluginMetadata, PluginState
 
 
@@ -17,14 +20,14 @@ class LoggingPlugin(BasePlugin):
             keywords=["logging", "middleware", "observability"],
         )
 
-    async def on_load(self):
-        self._logger = None
+    async def on_load(self) -> None:
+        self._logger: Any = None
 
-    async def on_initialize(self):
+    async def on_initialize(self) -> None:
         import logging
         self._logger = logging.getLogger("pyfault.request")
         self._logger.setLevel(logging.INFO)
-        
+
         if not self._logger.handlers:
             handler = logging.StreamHandler()
             formatter = logging.Formatter(
@@ -33,10 +36,10 @@ class LoggingPlugin(BasePlugin):
             handler.setFormatter(formatter)
             self._logger.addHandler(handler)
 
-    async def on_start(self):
+    async def on_start(self) -> None:
         self._logger.info("Logging plugin started")
 
-    async def on_stop(self):
+    async def on_stop(self) -> None:
         self._logger.info("Logging plugin stopped")
 
 
@@ -53,19 +56,19 @@ class MetricsPlugin(BasePlugin):
             provides=["metrics_collector"],
         )
 
-    async def on_load(self):
-        self._metrics = {}
+    async def on_load(self) -> None:
+        self._metrics: dict[str, Any] = {}
 
-    async def on_initialize(self):
+    async def on_initialize(self) -> None:
         from pyfault.common.performance import PerformanceMonitor
         self._monitor = PerformanceMonitor()
 
-    def record_request(self, method: str, path: str, duration: float, status: int):
+    def record_request(self, method: str, path: str, duration: float, status: int) -> None:
         """Record HTTP request metrics."""
         key = f"{method} {path}"
         if key not in self._metrics:
             self._metrics[key] = {"count": 0, "total_time": 0, "errors": 0}
-        
+
         self._metrics[key]["count"] += 1
         self._metrics[key]["total_time"] += duration
         if status >= 400:
@@ -95,7 +98,7 @@ class CorsPlugin(BasePlugin):
             },
         )
 
-    async def on_load(self):
+    async def on_load(self) -> None:
         self._config = {
             "allow_origins": ["*"],
             "allow_methods": ["*"],
@@ -104,7 +107,7 @@ class CorsPlugin(BasePlugin):
             "max_age": 3600,
         }
 
-    async def on_initialize(self):
+    async def on_initialize(self) -> None:
         # Apply config
         for key, value in self.config.items():
             if key in self._config:
@@ -127,14 +130,14 @@ class HealthCheckPlugin(BasePlugin):
             provides=["health_endpoints"],
         )
 
-    def __init__(self, config: dict = None):
+    def __init__(self, config: Optional[dict] = None):
         super().__init__(config)
+        self._checks: dict[str, Any] = {}
+
+    async def on_load(self) -> None:
         self._checks = {}
 
-    async def on_load(self):
-        self._checks = {}
-
-    def register_check(self, name: str, check_func):
+    def register_check(self, name: str, check_func: Any) -> None:
         """Register a health check function."""
         self._checks[name] = check_func
 
@@ -151,9 +154,6 @@ class HealthCheckPlugin(BasePlugin):
             except Exception as e:
                 results[name] = {"status": "unhealthy", "error": str(e)}
         return results
-
-
-import inspect
 
 
 class RateLimitPlugin(BasePlugin):
@@ -173,10 +173,10 @@ class RateLimitPlugin(BasePlugin):
             },
         )
 
-    async def on_load(self):
-        self._limits = {}
+    async def on_load(self) -> None:
+        self._limits: dict[str, Any] = {}
 
-    async def on_initialize(self):
+    async def on_initialize(self) -> None:
         self._config = {
             "default_limit": self.config.get("default_limit", 100),
             "window_seconds": self.config.get("window_seconds", 60),
@@ -201,43 +201,43 @@ class CachePlugin(BasePlugin):
             },
         )
 
-    async def on_load(self):
-        self._cache = {}
+    async def on_load(self) -> None:
+        self._cache: dict[str, Any] = {}
 
-    async def on_initialize(self):
+    async def on_initialize(self) -> None:
         backend = self.config.get("backend", "memory")
         if backend == "redis":
             self._init_redis()
         else:
             self._init_memory()
 
-    def _init_memory(self):
+    def _init_memory(self) -> None:
         import time
         self._cache = {}
-        self._expiry = {}
+        self._expiry: dict[str, float] = {}
 
-    def _init_redis(self):
+    def _init_redis(self) -> None:
         try:
             import redis
             self._redis = redis.from_url(self.config.get("redis_url", "redis://localhost:6379"))
         except ImportError:
             self._init_memory()
 
-    async def get(self, key: str):
+    async def get(self, key: str) -> Optional[str]:
         if hasattr(self, "_redis"):
             value = self._redis.get(key)
-            return value.decode() if value else None
+            return str(value.decode()) if value else None
         else:
             import time
             if key in self._cache:
                 if self._expiry.get(key, 0) > time.time():
-                    return self._cache[key]
+                    return str(self._cache[key])
                 else:
                     del self._cache[key]
                     del self._expiry[key]
             return None
 
-    async def set(self, key: str, value: str, ttl: int = None):
+    async def set(self, key: str, value: str, ttl: Optional[int] = None) -> None:
         ttl = ttl or self.config.get("default_ttl", 300)
         if hasattr(self, "_redis"):
             self._redis.setex(key, ttl, value)
@@ -246,7 +246,7 @@ class CachePlugin(BasePlugin):
             self._cache[key] = value
             self._expiry[key] = time.time() + ttl
 
-    async def delete(self, key: str):
+    async def delete(self, key: str) -> None:
         if hasattr(self, "_redis"):
             self._redis.delete(key)
         else:

@@ -3,9 +3,13 @@ Azure Functions Adapter for PyFault framework.
 """
 
 import json
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable
 
-from pyfault.common.serverless.base import ServerlessAdapter, ServerlessRequest, ServerlessResponse
+from pyfault.common.serverless.base import (
+    ServerlessAdapter,
+    ServerlessRequest,
+    ServerlessResponse,
+)
 
 
 class AzureFunctionsAdapter(ServerlessAdapter):
@@ -16,7 +20,7 @@ class AzureFunctionsAdapter(ServerlessAdapter):
         # Handle HTTP trigger
         if hasattr(event, "method") and hasattr(event, "url"):
             return self._parse_http_trigger(event)
-        
+
         # Handle dict-based events
         if isinstance(event, dict):
             if "request" in event:
@@ -25,7 +29,7 @@ class AzureFunctionsAdapter(ServerlessAdapter):
                 return self._parse_queue_trigger(event)
             if "timer" in event:
                 return self._parse_timer_trigger(event)
-        
+
         return self._parse_generic_event(event)
 
     def _parse_http_trigger(self, request: Any) -> ServerlessRequest:
@@ -35,7 +39,7 @@ class AzureFunctionsAdapter(ServerlessAdapter):
             headers = {}
             for k, v in request.headers.items():
                 headers[k] = v
-            
+
             return ServerlessRequest(
                 method=request.method,
                 path=request.url.path,
@@ -45,7 +49,7 @@ class AzureFunctionsAdapter(ServerlessAdapter):
                 path_params={},
                 raw_event=request,
             )
-        
+
         # Handle dict-based request
         if isinstance(request, dict):
             return ServerlessRequest(
@@ -57,10 +61,10 @@ class AzureFunctionsAdapter(ServerlessAdapter):
                 path_params={},
                 raw_event=request,
             )
-        
+
         return self._parse_generic_event(request)
 
-    def _parse_queue_trigger(self, event: Dict[str, Any]) -> ServerlessRequest:
+    def _parse_queue_trigger(self, event: dict[str, Any]) -> ServerlessRequest:
         """Parse Queue Storage trigger."""
         return ServerlessRequest(
             method="POST",
@@ -72,7 +76,7 @@ class AzureFunctionsAdapter(ServerlessAdapter):
             raw_event=event,
         )
 
-    def _parse_timer_trigger(self, event: Dict[str, Any]) -> ServerlessRequest:
+    def _parse_timer_trigger(self, event: dict[str, Any]) -> ServerlessRequest:
         """Parse Timer trigger."""
         return ServerlessRequest(
             method="POST",
@@ -92,14 +96,14 @@ class AzureFunctionsAdapter(ServerlessAdapter):
         if isinstance(event, dict):
             return ServerlessRequest(
                 method=event.get("method", "POST"),
-                path=event.get("path", event.get("url", "/")),
+                path=event.get("path") or event.get("url") or "/",
                 headers=event.get("headers", {}) or {},
                 query_params=event.get("query", event.get("params", {})) or {},
                 body=event.get("body", event.get("data", "")),
                 path_params={},
                 raw_event=event,
             )
-        
+
         return ServerlessRequest(
             method="POST",
             path="/",
@@ -110,7 +114,7 @@ class AzureFunctionsAdapter(ServerlessAdapter):
             raw_event=event,
         )
 
-    def format_response(self, response) -> Any:
+    def format_response(self, response: Any) -> Any:
         """Format ServerlessResponse for Azure Functions."""
         if hasattr(response, "to_dict"):
             resp_dict = response.to_dict()
@@ -122,7 +126,7 @@ class AzureFunctionsAdapter(ServerlessAdapter):
                 "headers": getattr(response, "headers", {"content-type": "application/json"}),
                 "body": getattr(response, "body", ""),
             }
-        
+
         # Azure Functions expects specific format
         return {
             "statusCode": resp_dict.get("statusCode", resp_dict.get("status", 200)),
@@ -130,10 +134,10 @@ class AzureFunctionsAdapter(ServerlessAdapter):
             "body": resp_dict.get("body", ""),
         }
 
-    async def _handle_request(self, scope: Dict[str, Any]) -> "ServerlessResponse":
+    async def _handle_request(self, scope: dict[str, Any]) -> "ServerlessResponse":
         """Handle ASGI request."""
         from pyfault.common.serverless.base import ServerlessResponse
-        
+
         return ServerlessResponse(
             status_code=200,
             headers={"content-type": "application/json"},
@@ -144,8 +148,8 @@ class AzureFunctionsAdapter(ServerlessAdapter):
 def create_azure_handler(app_factory: Callable) -> Callable:
     """Create an Azure Functions handler from an app factory."""
     adapter = AzureFunctionsAdapter(app_factory)
-    
+
     async def handler(request: Any, context: Any = None) -> Any:
         return await adapter.handle(request, context)
-    
+
     return handler

@@ -2,70 +2,68 @@
 Region Management for PyFault framework.
 """
 
+import asyncio
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set
-import asyncio
-import uuid
+from typing import Any, Optional
 
+from .compliance import (
+    CCPA_RULES,
+    GDPR_RULES,
+    HIPAA_RULES,
+    PCI_DSS_RULES,
+    AuditLogger,
+    ComplianceFramework,
+    ComplianceManager,
+    ComplianceRuleEngine,
+    ComplianceViolation,
+    CrossBorderTransfer,
+    DataAsset,
+    DataCategory,
+    DataIsolationManager,
+    DataProcessingPurpose,
+    DataResidencyRule,
+    TransferMechanism,
+    get_audit_logger,
+    get_compliance_manager,
+)
 from .discovery import (
-    ServiceRegistry,
+    CapacityAwareStrategy,
+    CompositeStrategy,
+    DiscoveryStrategy,
+    HealthScoreStrategy,
+    LatencyAwareStrategy,
+    RegionAffinityStrategy,
     RegionAwareDiscovery,
     ServiceEndpoint,
     ServiceInstance,
-    ServiceStatus,
-    DiscoveryStrategy,
-    LatencyAwareStrategy,
-    CapacityAwareStrategy,
-    RegionAffinityStrategy,
-    HealthScoreStrategy,
-    WeightedStrategy,
-    CompositeStrategy,
     ServiceMeshIntegration,
-    get_service_registry,
+    ServiceRegistry,
+    ServiceStatus,
+    WeightedStrategy,
     get_discovery,
+    get_service_registry,
 )
-
 from .health import (
-    RegionHealthManager,
-    HealthScorer,
+    AvailabilityHealthChecker,
+    CapacityHealthChecker,
     CircuitBreaker,
     CircuitBreakerState,
+    CustomHealthChecker,
+    DependencyHealthChecker,
+    ErrorRateHealthChecker,
+    HealthBasedRouter,
     HealthCheckResult,
-    RegionHealthReport,
     HealthDimension,
+    HealthScorer,
     HealthStatus,
     LatencyHealthChecker,
-    ErrorRateHealthChecker,
+    RegionHealthManager,
+    RegionHealthReport,
     ThroughputHealthChecker,
-    CapacityHealthChecker,
-    AvailabilityHealthChecker,
-    DependencyHealthChecker,
-    CustomHealthChecker,
-    HealthBasedRouter,
     get_health_manager,
-)
-
-from .compliance import (
-    ComplianceManager,
-    ComplianceRuleEngine,
-    DataIsolationManager,
-    AuditLogger,
-    DataResidencyRule,
-    DataAsset,
-    ComplianceViolation,
-    CrossBorderTransfer,
-    ComplianceFramework,
-    DataCategory,
-    DataProcessingPurpose,
-    TransferMechanism,
-    GDPR_RULES,
-    CCPA_RULES,
-    HIPAA_RULES,
-    PCI_DSS_RULES,
-    get_compliance_manager,
-    get_audit_logger,
 )
 
 
@@ -89,12 +87,12 @@ class Region:
     latitude: float = 0.0
     longitude: float = 0.0
     timezone: str = "UTC"
-    tags: Dict[str, str] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    tags: dict[str, str] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.utcnow)
     updated_at: datetime = field(default_factory=datetime.utcnow)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
@@ -117,10 +115,10 @@ class RegionManager:
     Manages region configurations and health.
     """
 
-    def __init__(self):
-        self._regions: Dict[str, Region] = {}
+    def __init__(self) -> None:
+        self._regions: dict[str, Region] = {}
         self._default_region_id: Optional[str] = None
-        self._health_checks: Dict[str, asyncio.Task] = {}
+        self._health_checks: dict[str, asyncio.Task] = {}
         self._running = False
 
     def register_region(self, region: Region) -> None:
@@ -149,7 +147,7 @@ class RegionManager:
                 return region
         return None
 
-    def list_regions(self, status: Optional[RegionStatus] = None) -> List[Region]:
+    def list_regions(self, status: Optional[RegionStatus] = None) -> list[Region]:
         """List all regions, optionally filtered by status."""
         regions = list(self._regions.values())
         if status:
@@ -204,13 +202,13 @@ class RegionManager:
         # For now, return True for active regions
         return region.status == RegionStatus.ACTIVE
 
-    def get_region_stats(self) -> Dict[str, Any]:
+    def get_region_stats(self) -> dict[str, Any]:
         """Get statistics about all regions."""
         total = len(self._regions)
         active = sum(1 for r in self._regions.values() if r.status == RegionStatus.ACTIVE)
         degraded = sum(1 for r in self._regions.values() if r.status == RegionStatus.DEGRADED)
         inactive = sum(1 for r in self._regions.values() if r.status == RegionStatus.INACTIVE)
-        
+
         return {
             "total_regions": total,
             "active": active,

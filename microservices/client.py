@@ -4,7 +4,7 @@ Microservices support for PyFault framework.
 
 import asyncio
 import json
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 
 class MicroserviceOptions:
@@ -21,9 +21,9 @@ class MicroserviceClient:
 
     def __init__(self, options: MicroserviceOptions):
         self.options = options
-        self._connection = None
+        self._connection: Optional[tuple[asyncio.StreamReader, asyncio.StreamWriter]] = None
 
-    async def connect(self):
+    async def connect(self) -> None:
         """Connect to microservice."""
         if self.options.transport == 'tcp':
             self._connection = await asyncio.open_connection(
@@ -42,7 +42,7 @@ class MicroserviceClient:
             return json.loads(response.decode())
         return None
 
-    async def close(self):
+    async def close(self) -> None:
         """Close connection."""
         if self._connection:
             reader, writer = self._connection
@@ -56,22 +56,22 @@ class MicroserviceServer:
     def __init__(self, options: MicroserviceOptions):
         self.options = options
         self._handlers: dict[str, Callable] = {}
-        self._server = None
+        self._server: Optional[asyncio.Server] = None
 
-    def register_handler(self, pattern: str, handler: Callable):
+    def register_handler(self, pattern: str, handler: Callable) -> None:
         """Register a message handler."""
         self._handlers[pattern] = handler
 
-    def MessagePattern(self, pattern: str):
+    def MessagePattern(self, pattern: str) -> Callable[..., Any]:
         """Decorator for registering a message handler."""
-        def decorator(func: Callable):
+        def decorator(func: Callable) -> Any:
             self._handlers[pattern] = func
             return func
         return decorator
 
-    async def start(self):
+    async def start(self) -> None:
         """Start the server."""
-        async def handle_client(reader, writer):
+        async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
             try:
                 while True:
                     data = await reader.read(1024)
@@ -97,7 +97,7 @@ class MicroserviceServer:
             self.options.port
         )
 
-    async def stop(self):
+    async def stop(self) -> None:
         """Stop the server."""
         if self._server:
             self._server.close()

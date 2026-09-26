@@ -4,7 +4,7 @@ Authentication Module for PyFault framework.
 
 import hashlib
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
@@ -18,14 +18,8 @@ class User:
     username: str
     email: str
     password_hash: str
-    roles: list[str] = None
-    created_at: datetime = None
-
-    def __post_init__(self):
-        if self.roles is None:
-            self.roles = []
-        if self.created_at is None:
-            self.created_at = datetime.now()
+    roles: list[str] = field(default_factory=list)
+    created_at: datetime = field(default_factory=datetime.now)
 
 
 @dataclass
@@ -40,7 +34,7 @@ class Token:
 class AuthModule:
     """Authentication module."""
 
-    def __init__(self, secret_key: str = None, token_ttl: int = 3600):
+    def __init__(self, secret_key: Optional[str] = None, token_ttl: int = 3600) -> None:
         self.secret_key = secret_key or secrets.token_hex(32)
         self.token_ttl = token_ttl
         self._users: dict[str, User] = {}

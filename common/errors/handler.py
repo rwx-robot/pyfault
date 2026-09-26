@@ -31,7 +31,7 @@ class AppException(Exception):
 class BadRequestException(AppException):
     """Bad request exception."""
 
-    def __init__(self, message: str = "Bad request", details: dict[str, Any] = None):
+    def __init__(self, message: str = "Bad request", details: Optional[dict[str, Any]] = None):
         super().__init__(
             code=ErrorCode.BAD_REQUEST,
             message=message,
@@ -43,7 +43,7 @@ class BadRequestException(AppException):
 class UnauthorizedException(AppException):
     """Unauthorized exception."""
 
-    def __init__(self, message: str = "Unauthorized", details: dict[str, Any] = None):
+    def __init__(self, message: str = "Unauthorized", details: Optional[dict[str, Any]] = None):
         super().__init__(
             code=ErrorCode.UNAUTHORIZED,
             message=message,
@@ -55,7 +55,7 @@ class UnauthorizedException(AppException):
 class ForbiddenException(AppException):
     """Forbidden exception."""
 
-    def __init__(self, message: str = "Forbidden", details: dict[str, Any] = None):
+    def __init__(self, message: str = "Forbidden", details: Optional[dict[str, Any]] = None):
         super().__init__(
             code=ErrorCode.FORBIDDEN,
             message=message,
@@ -67,7 +67,7 @@ class ForbiddenException(AppException):
 class NotFoundException(AppException):
     """Not found exception."""
 
-    def __init__(self, message: str = "Not found", details: dict[str, Any] = None):
+    def __init__(self, message: str = "Not found", details: Optional[dict[str, Any]] = None):
         super().__init__(
             code=ErrorCode.NOT_FOUND,
             message=message,
@@ -79,7 +79,7 @@ class NotFoundException(AppException):
 class ConflictException(AppException):
     """Conflict exception."""
 
-    def __init__(self, message: str = "Conflict", details: dict[str, Any] = None):
+    def __init__(self, message: str = "Conflict", details: Optional[dict[str, Any]] = None):
         super().__init__(
             code=ErrorCode.CONFLICT,
             message=message,
@@ -91,7 +91,7 @@ class ConflictException(AppException):
 class InternalErrorException(AppException):
     """Internal error exception."""
 
-    def __init__(self, message: str = "Internal error", details: dict[str, Any] = None):
+    def __init__(self, message: str = "Internal error", details: Optional[dict[str, Any]] = None):
         super().__init__(
             code=ErrorCode.INTERNAL_ERROR,
             message=message,
@@ -103,17 +103,18 @@ class InternalErrorException(AppException):
 class ErrorHandler:
     """Error handler for global exception handling."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._handlers: dict[ErrorCode, Any] = {}
 
-    def register_handler(self, error_code: ErrorCode, handler):
+    def register_handler(self, error_code: ErrorCode, handler: Any) -> None:
         """Register error handler."""
         self._handlers[error_code] = handler
 
     def handle(self, exception: AppException) -> dict[str, Any]:
         """Handle exception."""
         if exception.code in self._handlers:
-            return self._handlers[exception.code](exception)
+            handled: dict[str, Any] = self._handlers[exception.code](exception)
+            return handled
 
         return {
             "error": {

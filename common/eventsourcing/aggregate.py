@@ -6,10 +6,15 @@ import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Type, TypeVar, Generic
 from enum import Enum
+from typing import Any, Optional, TypeVar
 
-from pyfault.common.eventsourcing.events import Event, DomainEvent, EventMetadata, EventFactory
+from pyfault.common.eventsourcing.events import (
+    DomainEvent,
+    Event,
+    EventFactory,
+    EventMetadata,
+)
 
 
 class AggregateState(str, Enum):
@@ -33,7 +38,7 @@ class AggregateVersion:
     def increment(self, event_id: str) -> "AggregateVersion":
         return AggregateVersion(
             version=self.version + 1,
-            last_event_id=self.version,
+            last_event_id=event_id,
             last_updated=datetime.utcnow(),
         )
 
@@ -41,11 +46,11 @@ class AggregateVersion:
 class AggregateRoot(ABC):
     """
     Base class for aggregate roots in Event Sourcing.
-    
+
     An aggregate root is the entry point to a cluster of related objects (aggregate).
     It ensures consistency within the aggregate by controlling all modifications.
     """
-    
+
     def __init__(
         self,
         aggregate_id: Optional[str] = None,
@@ -55,8 +60,8 @@ class AggregateRoot(ABC):
         self._aggregate_type = aggregate_type or self.__class__.__name__
         self._version = 0
         self._state = AggregateState.NEW
-        self._uncommitted_events: List[Event] = []
-        self._applied_events: List[str] = []
+        self._uncommitted_events: list[Event] = []
+        self._applied_events: list[str] = []
         self._snapshot_version: Optional[int] = None
 
     @property
@@ -76,10 +81,10 @@ class AggregateRoot(ABC):
         return self._state
 
     @property
-    def uncommitted_events(self) -> List[Event]:
+    def uncommitted_events(self) -> list[Event]:
         return self._uncommitted_events.copy()
 
-    def mark_committed(self, events: List[Event]) -> None:
+    def mark_committed(self, events: list[Event]) -> None:
         """Mark events as committed after successful persistence."""
         for event in events:
             self._applied_events.append(event.metadata.event_id)
@@ -101,12 +106,12 @@ class AggregateRoot(ABC):
     def _emit_event(
         self,
         event_type: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         metadata: Optional[EventMetadata] = None,
     ) -> Event:
         """Emit a new event from the aggregate."""
         self._version += 1
-        
+
         event = EventFactory.create_event(
             aggregate_id=self._id,
             aggregate_type=self._aggregate_type,
@@ -115,22 +120,22 @@ class AggregateRoot(ABC):
             version=self._version,
             metadata=metadata,
         )
-        
+
         self._apply_event_internal(event)
         self._uncommitted_events.append(event)
-        
+
         return event
 
     def _emit_domain_event(
         self,
         event_type: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         aggregate_root_id: str,
         metadata: Optional[EventMetadata] = None,
     ) -> "DomainEvent":
         """Emit a domain event."""
         self._version += 1
-        
+
         event = EventFactory.create_domain_event(
             aggregate_id=self._id,
             aggregate_type=self._aggregate_type,
@@ -140,10 +145,10 @@ class AggregateRoot(ABC):
             aggregate_root_id=aggregate_root_id,
             metadata=metadata,
         )
-        
+
         self._apply_event_internal(event)
         self._uncommitted_events.append(event)
-        
+
         return event
 
     @abstractmethod
@@ -169,12 +174,12 @@ class AggregateRoot(ABC):
         self._restore_state(snapshot.state)
 
     @abstractmethod
-    def _get_state(self) -> Dict[str, Any]:
+    def _get_state(self) -> dict[str, Any]:
         """Get the current state for snapshotting."""
         pass
 
     @abstractmethod
-    def _restore_state(self, state: Dict[str, Any]) -> None:
+    def _restore_state(self, state: dict[str, Any]) -> None:
         """Restore state from snapshot."""
         pass
 
@@ -189,10 +194,10 @@ class AggregateSnapshot:
     aggregate_id: str
     aggregate_type: str
     version: int
-    state: Dict[str, Any]
+    state: dict[str, Any]
     timestamp: datetime
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "aggregate_id": self.aggregate_id,
             "aggregate_type": self.aggregate_type,
@@ -202,7 +207,7 @@ class AggregateSnapshot:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AggregateSnapshot":
+    def from_dict(cls, data: dict[str, Any]) -> "AggregateSnapshot":
         return cls(
             aggregate_id=data["aggregate_id"],
             aggregate_type=data["aggregate_type"],

@@ -2,12 +2,14 @@
 Database Manager for PyFault framework - SQLAlchemy integration.
 """
 
-from typing import Any, Optional
+from contextlib import AbstractAsyncContextManager, AbstractContextManager
+from typing import Optional
 
 from sqlalchemy import MetaData
-from sqlalchemy.orm import DeclarativeBase, declarative_base
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import DeclarativeBase, Session
 
-from pyfault.common.database.session import SessionManager, init_session_manager, get_session_manager
+from pyfault.common.database.session import SessionManager, init_session_manager
 
 
 class Base(DeclarativeBase):
@@ -59,39 +61,42 @@ class DatabaseManager:
         self._initialized = True
         return self
 
-    def create_tables(self):
+    def create_tables(self) -> None:
         """Create all tables defined in models."""
-        engine = self._session_manager.sync_engine
+        engine = self.get_session_manager().sync_engine
         Base.metadata.create_all(engine)
 
-    def drop_tables(self):
+    def drop_tables(self) -> None:
         """Drop all tables."""
-        engine = self._session_manager.sync_engine
+        engine = self.get_session_manager().sync_engine
         Base.metadata.drop_all(engine)
 
     def get_session_manager(self) -> SessionManager:
         """Get the session manager."""
         if self._session_manager is None:
             self.initialize()
-        return self._session_manager
+        manager = self._session_manager
+        if manager is None:
+            raise RuntimeError("Session manager failed to initialize")
+        return manager
 
-    def get_session(self):
+    def get_session(self) -> Session:
         """Get a new database session."""
         return self.get_session_manager().get_sync_session()
 
-    def get_async_session(self):
+    def get_async_session(self) -> AsyncSession:
         """Get a new async database session."""
         return self.get_session_manager().get_async_session()
 
-    def session_scope(self):
+    def session_scope(self) -> AbstractContextManager[Session]:
         """Get a transactional session scope."""
         return self.get_session_manager().session_scope()
 
-    def async_session_scope(self):
+    def async_session_scope(self) -> AbstractAsyncContextManager[AsyncSession]:
         """Get an async transactional session scope."""
         return self.get_session_manager().async_session_scope()
 
-    def close(self):
+    def close(self) -> None:
         """Close database connections."""
         if self._session_manager:
             self._session_manager.close()
@@ -131,30 +136,30 @@ class DatabaseModule:
         """Get the database manager."""
         return self.manager
 
-    def get_session(self):
+    def get_session(self) -> Session:
         """Get a database session."""
         return self.manager.get_session()
 
-    def get_async_session(self):
+    def get_async_session(self) -> AsyncSession:
         """Get an async database session."""
         return self.manager.get_async_session()
 
-    def session_scope(self):
+    def session_scope(self) -> AbstractContextManager[Session]:
         """Get a transactional session scope."""
         return self.manager.session_scope()
 
-    def async_session_scope(self):
+    def async_session_scope(self) -> AbstractAsyncContextManager[AsyncSession]:
         """Get an async transactional session scope."""
         return self.manager.async_session_scope()
 
-    def create_tables(self):
+    def create_tables(self) -> None:
         """Create all tables."""
         self.manager.create_tables()
 
-    def drop_tables(self):
+    def drop_tables(self) -> None:
         """Drop all tables."""
         self.manager.drop_tables()
 
-    def close(self):
+    def close(self) -> None:
         """Close database connections."""
         self.manager.close()

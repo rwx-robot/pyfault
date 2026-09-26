@@ -2,14 +2,12 @@
 Admin Dashboard for PyFault framework.
 """
 
-import json
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
 
 from pyfault.common.plugins import get_plugin_manager
 from pyfault.common.tenant import get_current_tenant
-from pyfault.common.monitoring import HealthCheck, MetricsCollector
 
 
 @dataclass
@@ -18,7 +16,7 @@ class AdminUser:
     id: str
     username: str
     email: str
-    roles: List[str] = field(default_factory=list)
+    roles: list[str] = field(default_factory=list)
     last_login: str = ""
     is_active: bool = True
 
@@ -39,10 +37,10 @@ class AdminConfig:
 class AdminDashboard:
     """Main admin dashboard."""
 
-    def __init__(self, config: AdminConfig = None):
+    def __init__(self, config: Optional[AdminConfig] = None) -> None:
         self.config = config or AdminConfig()
-        self._widgets: Dict[str, Any] = {}
-        self._routes: List[Dict[str, Any]] = []
+        self._widgets: dict[str, Any] = {}
+        self._routes: list[dict[str, Any]] = []
 
     def register_widget(self, name: str, widget: Any) -> None:
         """Register a dashboard widget."""
@@ -52,14 +50,14 @@ class AdminDashboard:
         """Get a widget by name."""
         return self._widgets.get(name)
 
-    def get_all_widgets(self) -> Dict[str, Any]:
+    def get_all_widgets(self) -> dict[str, Any]:
         """Get all widgets."""
         return self._widgets.copy()
 
-    def get_system_overview(self) -> Dict[str, Any]:
+    def get_system_overview(self) -> dict[str, Any]:
         """Get system overview data."""
         plugin_manager = get_plugin_manager()
-        
+
         plugins_info = {}
         for name, plugin in plugin_manager.get_all_plugins().items():
             plugins_info[name] = {
@@ -69,7 +67,7 @@ class AdminDashboard:
             }
 
         tenant = get_current_tenant()
-        
+
         return {
             "timestamp": time.time(),
             "version": "1.4.0",
@@ -80,16 +78,16 @@ class AdminDashboard:
             "uptime": time.time() - self._start_time if hasattr(self, '_start_time') else 0,
         }
 
-    def get_plugin_details(self, plugin_name: str) -> Optional[Dict[str, Any]]:
+    def get_plugin_details(self, plugin_name: str) -> Optional[dict[str, Any]]:
         """Get detailed plugin information."""
         plugin_manager = get_plugin_manager()
         plugin = plugin_manager.get_plugin(plugin_name)
         if not plugin:
             return None
-        
+
         return plugin_manager.get_plugin_info(plugin_name)
 
-    def get_tenant_list(self) -> List[Dict[str, Any]]:
+    def get_tenant_list(self) -> list[dict[str, Any]]:
         """Get list of tenants."""
         # This would integrate with tenant manager
         return []
@@ -110,7 +108,7 @@ class AdminAPIRouter:
         self.dashboard = dashboard
         self._routes = self._build_routes()
 
-    def _build_routes(self) -> List[Dict[str, Any]]:
+    def _build_routes(self) -> list[dict[str, Any]]:
         """Build API routes."""
         return [
             {"path": "/api/admin/overview", "method": "GET", "handler": self.get_overview},
@@ -127,19 +125,19 @@ class AdminAPIRouter:
             {"path": "/api/admin/config", "method": "PUT", "handler": self.update_config},
         ]
 
-    async def get_overview(self, request: Any) -> Dict[str, Any]:
+    async def get_overview(self, request: Any) -> dict[str, Any]:
         """Get system overview."""
         return self.dashboard.get_system_overview()
 
-    async def get_plugins(self, request: Any) -> Dict[str, Any]:
+    async def get_plugins(self, request: Any) -> dict[str, Any]:
         """Get all plugins."""
         plugin_manager = get_plugin_manager()
         plugins = {}
-        for name, plugin in plugin_manager.get_all_plugins().items():
+        for name, _plugin in plugin_manager.get_all_plugins().items():
             plugins[name] = plugin_manager.get_plugin_info(name)
         return {"plugins": plugins}
 
-    async def get_plugin(self, request: Any) -> Dict[str, Any]:
+    async def get_plugin(self, request: Any) -> dict[str, Any] | tuple[dict[str, Any], int]:
         """Get plugin details."""
         plugin_name = request.path_params.get("name")
         details = self.dashboard.get_plugin_details(plugin_name)
@@ -147,56 +145,58 @@ class AdminAPIRouter:
             return {"error": "Plugin not found"}, 404
         return details
 
-    async def start_plugin(self, request: Any) -> Dict[str, Any]:
+    async def start_plugin(self, request: Any) -> dict[str, Any]:
         """Start a plugin."""
         plugin_name = request.path_params.get("name")
         plugin_manager = get_plugin_manager()
         await plugin_manager.start_plugins([plugin_name])
         return {"success": True, "plugin": plugin_name}
 
-    async def stop_plugin(self, request: Any) -> Dict[str, Any]:
+    async def stop_plugin(self, request: Any) -> dict[str, Any]:
         """Stop a plugin."""
         plugin_name = request.path_params.get("name")
         plugin_manager = get_plugin_manager()
         await plugin_manager.stop_plugins([plugin_name])
         return {"success": True, "plugin": plugin_name}
 
-    async def restart_plugin(self, request: Any) -> Dict[str, Any]:
+    async def restart_plugin(self, request: Any) -> dict[str, Any]:
         """Restart a plugin."""
         plugin_name = request.path_params.get("name")
         plugin_manager = get_plugin_manager()
         await plugin_manager.reload_plugin(plugin_name)
         return {"success": True, "plugin": plugin_name}
 
-    async def get_tenants(self, request: Any) -> Dict[str, Any]:
+    async def get_tenants(self, request: Any) -> dict[str, Any]:
         """Get all tenants."""
         return {"tenants": self.dashboard.get_tenant_list()}
 
-    async def get_tenant(self, request: Any) -> Dict[str, Any]:
+    async def get_tenant(self, request: Any) -> dict[str, Any]:
         """Get tenant details."""
         tenant_id = request.path_params.get("id")
         # Implementation would fetch from tenant manager
         return {"tenant": tenant_id}
 
-    async def get_metrics(self, request: Any) -> Dict[str, Any]:
+    async def get_metrics(self, request: Any) -> dict[str, Any]:
         """Get system metrics."""
         plugin_manager = get_plugin_manager()
         metrics_plugin = plugin_manager.get_plugin("metrics")
-        
+
         if metrics_plugin:
-            return metrics_plugin.get_metrics()
+            metrics: dict[str, Any] = metrics_plugin.get_metrics()  # type: ignore[attr-defined]
+            return metrics
         return {"metrics": {}}
 
-    async def get_health(self, request: Any) -> Dict[str, Any]:
+    async def get_health(self, request: Any) -> dict[str, Any]:
         """Get health status."""
         plugin_manager = get_plugin_manager()
         health_plugin = plugin_manager.get_plugin("healthcheck")
-        
+
         if health_plugin:
-            return await health_plugin.run_checks()
+            health: dict[str, Any] = await health_plugin.run_checks()  # type: ignore[attr-defined]
+            return health
         return {"status": "unknown"}
 
-    async def get_config(self, request: Any) -> Dict[str, Any]:
+    async def get_config(self, request: Any) -> dict[str, Any]:
         """Get admin config."""
         return {
             "title": self.dashboard.config.title,
@@ -204,29 +204,29 @@ class AdminAPIRouter:
             "refresh_interval": self.dashboard.config.refresh_interval,
         }
 
-    async def update_config(self, request: Any) -> Dict[str, Any]:
+    async def update_config(self, request: Any) -> dict[str, Any]:
         """Update admin config."""
         # Implementation would update config
         return {"success": True}
 
-    def get_routes(self) -> List[Dict[str, Any]]:
+    def get_routes(self) -> list[dict[str, Any]]:
         """Get all routes."""
         return self._routes
 
 
 async def create_admin_app(
-    config: AdminConfig = None,
-    app_factory: Callable = None,
+    config: Optional[AdminConfig] = None,
+    app_factory: Optional[Callable] = None,
 ) -> Any:
     """Create admin dashboard application."""
     config = config or AdminConfig()
     dashboard = AdminDashboard(config)
-    
+
     if app_factory:
-        app = await app_factory()
+        _app = await app_factory()
         # Integrate dashboard routes
         # This would integrate with the main app
         pass
-    
+
     dashboard.start()
     return dashboard

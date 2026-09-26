@@ -5,7 +5,7 @@ Tenant Resolvers for PyFault framework.
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
-from pyfault.common.tenant.context import Tenant, TenantContextManager
+from pyfault.common.tenant.context import TenantContextManager
 
 
 class TenantResolver(ABC):
@@ -28,7 +28,8 @@ class HeaderTenantResolver(TenantResolver):
         self.header_name = header_name
 
     def resolve(self, request: Any) -> Optional[str]:
-        return request.headers.get(self.header_name)
+        value: Optional[str] = request.headers.get(self.header_name)
+        return value
 
 
 class DomainTenantResolver(TenantResolver):
@@ -55,19 +56,19 @@ class SubdomainTenantResolver(TenantResolver):
     def resolve(self, request: Any) -> Optional[str]:
         host = request.headers.get("Host", "")
         domain = host.split(":")[0]
-        
+
         if self.base_domain and not domain.endswith(self.base_domain):
             return None
-        
+
         # Extract subdomain
         parts = domain.split(".")
         if len(parts) < 2:
             return None
-        
+
         subdomain = parts[0]
         if subdomain == "www":
             return None
-        
+
         tenant = self.tenant_manager.get_tenant_by_subdomain(subdomain)
         return tenant.id if tenant else None
 
@@ -81,10 +82,10 @@ class PathTenantResolver(TenantResolver):
 
     def resolve(self, request: Any) -> Optional[str]:
         path = request.url.path if hasattr(request, "url") else request.path
-        
+
         if not path.startswith(self.path_prefix):
             return None
-        
+
         # Extract tenant ID from path
         remaining = path[len(self.path_prefix):]
         tenant_id = remaining.split("/")[0]

@@ -5,15 +5,15 @@ Data Replication for PyFault framework.
 import asyncio
 import hashlib
 import json
+import statistics
 import time
+import uuid
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, TypeVar, Generic
-from collections import defaultdict
-import asyncio
-import uuid
+from typing import Any, Callable, Generic, Optional, TypeVar
 
 
 class ReplicationMode(str, Enum):
@@ -36,7 +36,7 @@ class ReplicationStatus(str, Enum):
 class ReplicationConfig:
     """Replication configuration."""
     source_region: str
-    target_regions: List[str]
+    target_regions: list[str]
     mode: ReplicationMode = ReplicationMode.ASYNCHRONOUS
     batch_size: int = 100
     flush_interval_ms: int = 100
@@ -57,7 +57,7 @@ class ReplicationEvent:
     entity_type: str = ""
     entity_id: str = ""
     operation: str = ""  # create, update, delete
-    payload: Dict[str, Any] = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=dict)
     version: int = 1
     timestamp: datetime = field(default_factory=datetime.utcnow)
     checksum: str = ""
@@ -90,7 +90,7 @@ class ReplicationBackend(ABC):
         pass
 
     @abstractmethod
-    async def replicate(self, events: List[Any]) -> bool:
+    async def replicate(self, events: list[Any]) -> bool:
         """Replicate events to target."""
         pass
 
@@ -115,7 +115,7 @@ class ReplicationBackend(ABC):
         pass
 
     @abstractmethod
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> dict[str, Any]:
         """Get replication statistics."""
         pass
 
@@ -135,20 +135,20 @@ class InMemoryReplicationBackend(ReplicationBackend):
         self._stats = ReplicationStats()
         self._running = False
         self._task: Optional[asyncio.Task] = None
-        self._events: List[ReplicationEvent] = []
+        self._events: list[ReplicationEvent] = []
 
     async def initialize(self) -> None:
         pass
 
-    async def replicate(self, events: List[Any]) -> bool:
+    async def replicate(self, events: list[Any]) -> bool:
         if self._status != ReplicationStatus.ACTIVE:
             return False
-        
+
         for event in events:
             await self._queue.put(event)
             self._events.append(event)
             self._stats.total_events += 1
-        
+
         return True
 
     async def get_lag(self, target_region: str) -> float:
@@ -164,7 +164,7 @@ class InMemoryReplicationBackend(ReplicationBackend):
     async def get_status(self) -> ReplicationStatus:
         return self._status
 
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> dict[str, Any]:
         return {
             "total_events": self._stats.total_events,
             "replicated_events": self._stats.replicated_events,
@@ -186,9 +186,9 @@ class _ReplicationManager:
     Manages data replication across regions.
     """
 
-    def __init__(self):
-        self._backends: Dict[str, ReplicationBackend] = {}
-        self._configs: Dict[str, ReplicationConfig] = {}
+    def __init__(self) -> None:
+        self._backends: dict[str, ReplicationBackend] = {}
+        self._configs: dict[str, ReplicationConfig] = {}
         self._running = False
 
     def add_replication(
@@ -220,7 +220,7 @@ class _ReplicationManager:
         """Get replication configuration by name."""
         return self._configs.get(name)
 
-    def list_replications(self) -> List[str]:
+    def list_replications(self) -> list[str]:
         """List all replication configurations."""
         return list(self._configs.keys())
 
@@ -240,16 +240,16 @@ class _ReplicationManager:
         await backend.pause()
         return True
 
-    async def get_replication_status(self, name: str) -> Optional[Dict[str, Any]]:
+    async def get_replication_status(self, name: str) -> Optional[dict[str, Any]]:
         """Get replication status."""
         backend = self._backends.get(name)
         if not backend:
             return None
-        
+
         status = await backend.get_status()
         stats = await backend.get_stats()
         config = self._configs.get(name)
-        
+
         return {
             "name": name,
             "status": status.value,
@@ -257,7 +257,7 @@ class _ReplicationManager:
             "stats": stats,
         }
 
-    async def get_all_statuses(self) -> List[Dict[str, Any]]:
+    async def get_all_statuses(self) -> list[dict[str, Any]]:
         """Get status of all replications."""
         results = []
         for name in self._backends:
@@ -266,18 +266,18 @@ class _ReplicationManager:
                 results.append(status)
         return results
 
-    async def replicate_event(self, event) -> Dict[str, bool]:
+    async def replicate_event(self, event: Any) -> dict[str, bool]:
         """Replicate an event to all configured targets."""
         results = {}
         for name, backend in self._backends.items():
             try:
                 await self._replicate_to_backend(backend, event)
                 results[name] = True
-            except Exception as e:
+            except Exception:
                 results[name] = False
         return results
 
-    async def _replicate_to_backend(self, backend: "ReplicationBackend", event) -> None:
+    async def _replicate_to_backend(self, backend: "ReplicationBackend", event: Any) -> None:
         """Replicate event to a specific backend."""
         # In a real implementation, this would transform the event
         # and send it to the backend
@@ -287,20 +287,21 @@ class _ReplicationManager:
 class ReplicationManager:
     """Singleton replication manager."""
     _instance: Optional["ReplicationManager"] = None
+    _initialized: bool
 
-    def __new__(cls):
+    def __new__(cls) -> "ReplicationManager":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         if self._initialized:
             return
         self._manager = _ReplicationManager()
         self._initialized = True
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         return getattr(self._manager, name)
 
 
@@ -309,7 +310,7 @@ def get_replication_manager() -> "ReplicationManager":
     return ReplicationManager()
 
 
-async def initialize_replication(configs: List[ReplicationConfig] = None) -> ReplicationManager:
+async def initialize_replication(configs: Optional[list[ReplicationConfig]] = None) -> ReplicationManager:
     """Initialize replication with configurations."""
     manager = get_replication_manager()
     if configs:

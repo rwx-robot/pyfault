@@ -2,9 +2,9 @@
 Tenant Context for PyFault framework.
 """
 
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 
 @dataclass
@@ -14,13 +14,13 @@ class Tenant:
     name: str
     domain: str = ""
     subdomain: str = ""
-    config: Dict[str, Any] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    config: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     is_active: bool = True
     created_at: str = ""
     updated_at: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
@@ -58,13 +58,13 @@ class TenantContext:
 
     def __init__(self, tenant: Tenant):
         self.tenant = tenant
-        self._token = None
+        self._token: Optional[Token[Optional[Tenant]]] = None
 
     def __enter__(self) -> "TenantContext":
         self._token = _current_tenant.set(self.tenant)
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         if self._token:
             _current_tenant.reset(self._token)
 
@@ -73,15 +73,15 @@ class TenantContext:
         return self._tenant
 
     @tenant.setter
-    def tenant(self, value: Tenant):
+    def tenant(self, value: Tenant) -> None:
         self._tenant = value
 
 
 class TenantContextManager:
     """Manages tenant contexts for request processing."""
 
-    def __init__(self):
-        self._tenants: Dict[str, Tenant] = {}
+    def __init__(self) -> None:
+        self._tenants: dict[str, Tenant] = {}
 
     def register_tenant(self, tenant: Tenant) -> None:
         """Register a tenant."""
@@ -119,28 +119,28 @@ class TenantContextManager:
             return TenantContext(tenant)
         return None
 
-    def create_context_from_request(self, request) -> Optional[TenantContext]:
+    def create_context_from_request(self, request: Any) -> Optional[TenantContext]:
         """Create tenant context from HTTP request."""
         # Try to resolve tenant from request
         tenant = None
-        
+
         # Try header
         tenant_id = request.headers.get("X-Tenant-ID")
         if tenant_id:
             tenant = self.get_tenant(tenant_id)
-        
+
         # Try subdomain
         if not tenant:
             host = request.headers.get("Host", "")
             subdomain = host.split(".")[0] if "." in host else ""
             if subdomain and subdomain != "www":
                 tenant = self.get_tenant_by_subdomain(subdomain)
-        
+
         # Try domain
         if not tenant:
             host = request.headers.get("Host", "")
             tenant = self.get_tenant_by_domain(host)
-        
+
         if tenant:
             return TenantContext(tenant)
         return None

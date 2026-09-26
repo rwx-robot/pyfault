@@ -18,12 +18,12 @@ class Container:
     IoC Container for managing service instances.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._providers: dict[type, Any] = {}
         self._singletons: dict[type, Any] = {}
         self._scoped: dict[type, Any] = {}
 
-    def register(self, token: type, provider: Any, scope: Scope = Scope.SINGLETON):
+    def register(self, token: type, provider: Any, scope: Scope = Scope.SINGLETON) -> None:
         """Register a provider."""
         self._providers[token] = {
             'provider': provider,
@@ -58,7 +58,7 @@ class Container:
             return provider()
         return provider
 
-    def clear(self):
+    def clear(self) -> None:
         """Clear all providers and instances."""
         self._providers.clear()
         self._singletons.clear()
