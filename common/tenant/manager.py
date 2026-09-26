@@ -37,10 +37,13 @@ class TenantManager:
     def set_default_resolvers(self, header_name: str = "X-Tenant-ID", base_domain: str = "") -> "TenantManager":
         """Set up default resolvers."""
         self.resolvers = [
-            HeaderTenantResolver(self.context_manager, "X-Tenant-ID"),
+            HeaderTenantResolver(self.context_manager, header_name),
             SubdomainTenantResolver(self.context_manager, base_domain),
             DomainTenantResolver(self.context_manager),
         ]
+        # The resolver list was replaced, so any cached composite resolver
+        # still points at the old list.
+        self._composite_resolver = None
         return self
 
     def get_composite_resolver(self) -> CompositeTenantResolver:
