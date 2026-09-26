@@ -3,7 +3,8 @@ OpenAPI Generator for PyFault framework - auto-generates from routes.
 """
 
 import inspect
-from typing import Any
+from types import UnionType
+from typing import Any, Optional, Union
 
 from pyfault.common.openapi.decorators import get_openapi_doc, init_openapi
 from pyfault.common.openapi.schema import (
@@ -68,7 +69,9 @@ class OpenAPIGenerator:
 
         # Get module config
         module_config = self.scanner.get_metadata(module_class, MetadataKeys.MODULE)
-        if module_config:
+        # Non-decorated classes have a str __module__ (Python builtin) —
+        # only dict configs (set by @module) describe controllers/schemas.
+        if isinstance(module_config, dict):
             controllers = module_config.get('controllers', [])
 
             for controller_class in controllers:
@@ -106,7 +109,10 @@ class OpenAPIGenerator:
                 tags=openapi_meta.get('tags', [controller_class.__name__]),
                 summary=openapi_meta.get('summary', ''),
                 description=openapi_meta.get('description', ''),
-                operation_id=openapi_meta.get('operation_id', f"{controller_class.__name__}.{handler.__name__}" if handler else ""),
+                operation_id=openapi_meta.get('operation_id') or (
+                    f"{controller_class.__name__}.{handler.__name__}"
+                    if handler else ""
+                ),
                 parameters=self._extract_parameters(path, handler),
                 request_body=openapi_meta.get('request_body'),
                 responses=openapi_meta.get('responses', {
@@ -137,14 +143,26 @@ class OpenAPIGenerator:
                         return attr
         return None
 
-    def _collect_schemas(self, doc: OpenAPISchema, module_class: type) -> None:
+    def _collect_schemas(
+        self,
+        doc: OpenAPISchema,
+        module_class: type,
+        seen: Optional[set[type]] = None,
+    ) -> None:
         """Collect schema definitions from classes in module."""
         if doc.components is None:
             doc.components = Components()
 
+        # Guard against import cycles (ModuleA imports ModuleB imports ModuleA)
+        if seen is None:
+            seen = set()
+        if module_class in seen:
+            return
+        seen.add(module_class)
+
         # Get module config
         module_config = self.scanner.get_metadata(module_class, MetadataKeys.MODULE)
-        if module_config:
+        if isinstance(module_config, dict):
             # Check controllers, providers for schema classes
             for cls_list in [module_config.get('controllers', []), module_config.get('providers', [])]:
                 for cls in cls_list:
@@ -152,7 +170,7 @@ class OpenAPIGenerator:
 
             # Also check imports recursively
             for imported_module in module_config.get('imports', []):
-                self._collect_schemas(doc, imported_module)
+                self._collect_schemas(doc, imported_module, seen)
 
     def _collect_class_schema(self, doc: OpenAPISchema, cls: type) -> None:
         """Collect schema from a class if it has @schema decorator."""
@@ -240,18 +258,20 @@ class OpenAPIGenerator:
         elif annotation is list:
             return {"type": "array", "items": {"type": "string"}}
 
-        # Handle Optional
-        if hasattr(annotation, '__origin__'):
-            from typing import Optional
-            if annotation.__origin__ is Optional:
-                args = annotation.__args__
-                non_none = [a for a in args if a is not type(None)]
-                if non_none:
-                    return self._param_type_to_schema(non_none[0])
-            elif annotation.__origin__ is list:
-                args = annotation.__args__
-                if args:
-                    return {"type": "array", "items": self._param_type_to_schema(args[0])}
+        # Handle Optional/Union: typing.Optional[T] has __origin__ == Union
+        # (NOT Optional), and PEP 604 unions (T | None) are types.UnionType.
+        origin = getattr(annotation, "__origin__", None)
+        if origin is Union or isinstance(annotation, UnionType):
+            non_none = [a for a in annotation.__args__ if a is not type(None)]
+            if len(non_none) == 1:
+                return self._param_type_to_schema(non_none[0])
+            return {"anyOf": [self._param_type_to_schema(a) for a in non_none]}
+        elif origin is list:
+            # bare typing.List has __origin__ == list but no __args__
+            args = getattr(annotation, "__args__", None)
+            if args:
+                return {"type": "array", "items": self._param_type_to_schema(args[0])}
+            return {"type": "array", "items": {"type": "string"}}
 
         return {"type": "string"}
 

@@ -3,7 +3,8 @@ OpenAPI Decorators for PyFault framework.
 """
 
 from functools import wraps
-from typing import Any, Callable, Optional
+from types import UnionType
+from typing import Any, Callable, Optional, Union
 
 from pyfault.common.openapi.schema import (
     Components,
@@ -244,24 +245,22 @@ def _type_to_schema(py_type: Any) -> dict[str, Any]:
     elif py_type is dict:
         return {"type": "object"}
 
-    # Handle Optional
-    if hasattr(py_type, '__origin__'):
-        from typing import Optional
-        origin = py_type.__origin__
-
-        if origin is Optional:
-            # Optional[T] = Union[T, None]
-            args = py_type.__args__
-            non_none = [a for a in args if a is not type(None)]
-            if non_none:
-                return _type_to_schema(non_none[0])
-        elif origin is list:
-            args = py_type.__args__
-            if args:
-                return {"type": "array", "items": _type_to_schema(args[0])}
-            return {"type": "array", "items": {}}
-        elif origin is dict:
-            return {"type": "object"}
+    # Handle Optional/Union: typing.Optional[T] has __origin__ == Union
+    # (NOT Optional), and PEP 604 unions (T | None) are types.UnionType.
+    origin = getattr(py_type, "__origin__", None)
+    if origin is Union or isinstance(py_type, UnionType):
+        non_none = [a for a in py_type.__args__ if a is not type(None)]
+        if len(non_none) == 1:
+            return _type_to_schema(non_none[0])
+        return {"anyOf": [_type_to_schema(a) for a in non_none]}
+    elif origin is list:
+        # bare typing.List has __origin__ == list but no __args__
+        args = getattr(py_type, "__args__", None)
+        if args:
+            return {"type": "array", "items": _type_to_schema(args[0])}
+        return {"type": "array", "items": {}}
+    elif origin is dict:
+        return {"type": "object"}
 
     # Handle custom classes with annotations
     if hasattr(py_type, '__annotations__'):
