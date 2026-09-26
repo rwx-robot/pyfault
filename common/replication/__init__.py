@@ -206,11 +206,14 @@ class _ReplicationManager:
 
     def remove_replication(self, name: str) -> bool:
         """Remove a replication configuration."""
+        removed = False
         if name in self._backends:
             del self._backends[name]
+            removed = True
         if name in self._configs:
             del self._configs[name]
-        return True
+            removed = True
+        return removed
 
     def get_backend(self, name: str) -> Optional["ReplicationBackend"]:
         """Get replication backend by name."""
@@ -271,17 +274,16 @@ class _ReplicationManager:
         results = {}
         for name, backend in self._backends.items():
             try:
-                await self._replicate_to_backend(backend, event)
-                results[name] = True
+                results[name] = await self._replicate_to_backend(backend, event)
             except Exception:
                 results[name] = False
         return results
 
-    async def _replicate_to_backend(self, backend: "ReplicationBackend", event: Any) -> None:
+    async def _replicate_to_backend(
+        self, backend: "ReplicationBackend", event: Any
+    ) -> bool:
         """Replicate event to a specific backend."""
-        # In a real implementation, this would transform the event
-        # and send it to the backend
-        pass
+        return await backend.replicate([event])
 
 
 class ReplicationManager:
