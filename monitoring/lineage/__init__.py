@@ -264,7 +264,7 @@ class GitTracker:
                 text=True,
                 timeout=5,
             )
-            lines = result.stdout.strip().split("\n")
+            lines = result.stdout.split("\n")
             return [line[3:] for line in lines if line]
         except Exception:
             return []
@@ -426,7 +426,7 @@ class ArtifactStore:
                     return float(obj)
                 if isinstance(obj, np.ndarray):
                     return obj.tolist()
-                if isinstance(obj, pd.Timestamp):
+                if isinstance(obj, datetime):
                     return obj.isoformat()
                 return super().default(obj)
 
@@ -680,12 +680,14 @@ class LineageTracker:
             "memory_usage_bytes": df.memory_usage(deep=True).sum(),
         }
 
+        extra_metadata = dict(kwargs.pop("metadata", {}))
+
         return await self.log_artifact(
             name=name,
             artifact_type=ArtifactType.DATASET,
             path=path,
             version=version,
-            metadata={"statistics": stats, **kwargs.get("metadata", {})},
+            metadata={"statistics": stats, **extra_metadata},
             **kwargs
         )
 
@@ -702,19 +704,21 @@ class LineageTracker:
         **kwargs: Any
     ) -> Artifact:
         """Log a model artifact."""
+        extra_tags = dict(kwargs.pop("tags", {}))
+        extra_metadata = dict(kwargs.pop("metadata", {}))
         artifact = await self.log_artifact(
             name=name,
             artifact_type=ArtifactType.MODEL,
             path=model_path,
             version=version,
-            tags={"framework": framework, **kwargs.get("tags", {})},
+            tags={"framework": framework, **extra_tags},
             metadata={
                 "framework": framework,
                 "hyperparameters": hyperparameters or {},
                 "metrics": metrics or {},
                 "training_data_artifacts": training_data_artifacts or [],
                 "feature_names": feature_names or [],
-                **kwargs.get("metadata", {}),
+                **extra_metadata,
             },
             **kwargs
         )
@@ -838,7 +842,7 @@ class ReproducibilityManager:
         # Save to file
         snapshot_path = f"./data/lineage/snapshots/{snapshot_id}.json"
         Path(snapshot_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(snapshot_path).write_text(json.dumps(snapshot, indent=2))
+        Path(snapshot_path).write_text(json.dumps(snapshot, indent=2, default=str))
 
         return snapshot_id
 

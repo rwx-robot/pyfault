@@ -191,8 +191,12 @@ class MetricsCollector:
         key = f"{model_id}:{metric_type.value}"
         self._metrics[key].append(metric)
 
-        # Update sliding window
-        window_key = f"{model_id}:{metric_type.value}:{datetime.utcnow().minute}"
+        # Update sliding window (full date+hour+minute key: minute-of-hour alone
+        # collided across hours, replaying old data into every hour's bucket)
+        window_key = (
+            f"{model_id}:{metric_type.value}:"
+            f"{datetime.utcnow().strftime('%Y%m%d%H%M')}"
+        )
         self._sliding_windows[window_key].append(value)
 
         # Check SLA
@@ -379,9 +383,9 @@ class MetricsCollector:
         metric_types = set()
         for key in self._metrics:
             if key.startswith(f"{model_id}:"):
-                parts = key.split(":")
-                if len(parts) >= 2:
-                    metric_types.add(MetricType(parts[1]))
+                # keys are f"{model_id}:{metric_type.value}" -> split always
+                # yields at least the metric part after the first colon
+                metric_types.add(MetricType(key.split(":")[1]))
 
         # Create time buckets
         current = datetime.utcnow().replace(second=0, microsecond=0)
@@ -393,7 +397,10 @@ class MetricsCollector:
 
             for metric_type in metric_types:
                 key = f"{model_id}:{metric_type.value}"
-                window_key = f"{model_id}:{metric_type.value}:{current.minute}"
+                window_key = (
+                    f"{model_id}:{metric_type.value}:"
+                    f"{current.strftime('%Y%m%d%H%M')}"
+                )
                 window_values = list(self._sliding_windows.get(window_key, deque()))
 
                 if window_values:

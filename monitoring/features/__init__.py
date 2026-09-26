@@ -332,12 +332,14 @@ class FeatureStore:
 
         # Try eval for simple expressions (with safety)
         try:
-            # Only allow safe operations
+            # Only allow safe operations; an empty __builtins__ prevents Python
+            # from silently injecting real builtins (e.g. __import__, open)
             safe_globals = {
                 "pd": pd,
                 "np": np,
                 "datetime": datetime,
                 "timedelta": timedelta,
+                "__builtins__": {},
             }
             result = eval(feature.transformation, safe_globals, {"data": data})
             if isinstance(result, pd.Series):
@@ -347,7 +349,7 @@ class FeatureStore:
             logger.error(f"Failed to evaluate transformation: {e}")
             return pd.Series([feature.default_value] * len(data), index=data.index)
 
-    def compute_features(
+    async def compute_features(
         self,
         feature_names: list[str],
         data: pd.DataFrame,
@@ -374,10 +376,7 @@ class FeatureStore:
 
             # Compute feature
             try:
-                if asyncio.iscoroutinefunction(self.apply_transformation):
-                    # This would need async context
-                    pass
-                series = self.apply_transformation(feature, data)
+                series = await self.apply_transformation(feature, data)
                 results[fname] = series
             except Exception as e:
                 logger.error(f"Failed to compute {fname}: {e}")
@@ -625,14 +624,11 @@ class FeaturePipeline:
 
         while to_visit:
             node = to_visit.pop()
-            if node in visited:
-                continue
             visited.add(node)
 
             for dep in self._dag.get(node, []):
-                if dep in feature_names or dep in visited:
-                    subgraph[dep].add(node)
-                    in_degree[node] += 1
+                subgraph[dep].add(node)
+                in_degree[node] += 1
                 if dep not in visited:
                     to_visit.add(dep)
 
@@ -822,18 +818,28 @@ class FeatureLineageTracker:
             if key not in self._usage[feature.feature_id]:
                 self._usage[feature.feature_id].append(key)
 
-    def get_lineage(self, feature_name: str) -> Optional[dict[str, Any]]:
+    def get_lineage(
+        self,
+        feature_name: str,
+        _ancestors: Optional[set[str]] = None,
+    ) -> Optional[dict[str, Any]]:
         """Get full lineage for a feature."""
         feature = self.registry.get_feature_by_name(feature_name)
         if not feature:
             return None
+
+        ancestors: set[str] = set() if _ancestors is None else _ancestors
+        if feature.feature_id in ancestors:
+            # Cycle guard: dependency loops must not recurse forever
+            return None
+        ancestors = ancestors | {feature.feature_id}
 
         lineage = self._lineage.get(feature.feature_id, {})
 
         # Add upstream dependencies recursively
         upstream = []
         for dep_name in feature.dependencies:
-            dep_lineage = self.get_lineage(dep_name)
+            dep_lineage = self.get_lineage(dep_name, ancestors)
             if dep_lineage:
                 upstream.append(dep_lineage)
 

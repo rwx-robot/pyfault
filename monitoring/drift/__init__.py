@@ -51,6 +51,15 @@ class DriftSeverity(str, Enum):
     CRITICAL = "critical"
 
 
+_SEVERITY_RANK: dict[DriftSeverity, int] = {
+    DriftSeverity.NONE: 0,
+    DriftSeverity.LOW: 1,
+    DriftSeverity.MEDIUM: 2,
+    DriftSeverity.HIGH: 3,
+    DriftSeverity.CRITICAL: 4,
+}
+
+
 @dataclass
 class DriftMetric:
     """Single drift metric result."""
@@ -626,7 +635,7 @@ class DriftDetectorOrchestrator:
                 metrics = detector.detect(reference, current, feature_names)
                 all_metrics.extend(metrics)
             except Exception as e:
-                logger.error(f"Detector {detector.get_detector_name()} failed: {e}")
+                logger.error(f"Detector {type(detector).__name__} failed: {e}")
 
         # Multivariate detectors
         if include_multivariate:
@@ -635,7 +644,7 @@ class DriftDetectorOrchestrator:
                     metrics = detector.detect(reference, current, feature_names)
                     all_metrics.extend(metrics)
                 except Exception as e:
-                    logger.error(f"Multivariate detector {detector.get_detector_name()} failed: {e}")
+                    logger.error(f"Multivariate detector {type(detector).__name__} failed: {e}")
 
         # Determine overall severity
         severities = [m.severity for m in all_metrics]
@@ -744,7 +753,8 @@ class DriftMonitor:
     ) -> None:
         """Set reference distribution for a model."""
         self._reference_data[model_id] = reference_data
-        self._feature_names[model_id] = feature_names or [f"feature_{i}" for i in range(reference_data.shape[1])]
+        n_features = reference_data.shape[1] if reference_data.ndim > 1 else 1
+        self._feature_names[model_id] = feature_names or [f"feature_{i}" for i in range(n_features)]
         logger.info(f"Set reference data for model {model_id}: {reference_data.shape}")
 
     def add_callback(self, callback: Callable[[DriftReport], Any]) -> None:
@@ -773,7 +783,7 @@ class DriftMonitor:
         self._reports.append(report)
 
         # Trigger alerts
-        if report.overall_severity.value >= self.alert_threshold.value:
+        if _SEVERITY_RANK[report.overall_severity] >= _SEVERITY_RANK[self.alert_threshold]:
             for callback in self._callbacks:
                 try:
                     await callback(report)
