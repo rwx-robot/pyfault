@@ -92,9 +92,17 @@ class VersionSpec:
             return v >= constraint_version
         elif self.constraint == VersionConstraint.MAXIMUM:
             return v <= constraint_version
-        elif self.constraint == VersionConstraint.COMPATIBLE:
-            # Compatible release: ~=X.Y means >=X.Y, ==X.*
-            return v >= constraint_version and v.major == constraint_version.major
+        else:  # COMPATIBLE
+            # PEP 440 compatible release: ~=X.Y(.Z) -> >=X.Y(.Z), ==X.Y.*
+            # (major-only comparison wrongly allowed ~=2.1.3 to match
+            # 2.5.0; packaging's SpecifierSet rejects that pair).
+            prefix = constraint_version.release[:-1]
+            if not prefix:  # degenerate ~=2 form; PEP 440 forbids it
+                return v >= constraint_version
+            return (
+                v >= constraint_version
+                and tuple(v.release[:len(prefix)]) == prefix
+            )
 
     def _string_matches(self, version: str) -> bool:
         """Simple string-based version matching."""
@@ -201,11 +209,13 @@ class DependencyGraph:
     def add_plugin(self, manifest: PluginManifest) -> None:
         self._nodes[manifest.plugin_id] = manifest
 
-        # Ensure node exists in edges
-        if manifest.plugin_id not in self._edges:
-            self._edges[manifest.plugin_id] = set()
-        if manifest.plugin_id not in self._reverse_edges:
-            self._reverse_edges[manifest.plugin_id] = set()
+        # Rebuild outgoing edges: re-adding a manifest (e.g. an updated
+        # version of the same plugin) must drop edges left behind by the
+        # previous one — otherwise removed dependencies linger forever.
+        for dep_id in self._edges.pop(manifest.plugin_id, set()):
+            self._reverse_edges[dep_id].discard(manifest.plugin_id)
+        self._edges[manifest.plugin_id] = set()
+        self._reverse_edges.setdefault(manifest.plugin_id, set())
 
         # Add dependency edges
         for dep in manifest.dependencies:
@@ -332,9 +342,29 @@ class DependencyResolver:
                 elif dep.dep_type == DependencyType.DEVELOPMENT and include_dev and not self._check_dependency(dep):
                     warnings.append(f"Dev dependency not met: {plugin.plugin_id} -> {dep.plugin_id}")
 
-            # Visit dependencies
-            for dep_id in self.graph.get_dependencies(plugin_id):
-                if not visit(dep_id, path):
+            # Visit dependencies. Type-aware traversal (graph edges cannot
+            # express the include_optional / include_dev flags):
+            # - optional deps that failed the version check above only warn;
+            #   visiting them anyway used to hard-fail resolve() with
+            #   "Plugin not found" despite the warning-only contract
+            # - include_optional=False now actually excludes them
+            # - include_dev=True now actually installs dev dependencies
+            #   (they were only ever warned about before)
+            # - PEER/BUNDLED are host-provided / shipped, never visited
+            for dep in plugin.dependencies:
+                if dep.dep_type == DependencyType.REQUIRED:
+                    included = True  # already version-checked above
+                elif dep.dep_type == DependencyType.OPTIONAL:
+                    included = (include_optional
+                                and self._check_dependency(dep))
+                elif dep.dep_type == DependencyType.DEVELOPMENT:
+                    included = include_dev and self._check_dependency(dep)
+                else:
+                    included = False  # PEER / BUNDLED
+
+                if not included:
+                    continue
+                if not visit(dep.plugin_id, path):
                     visiting.remove(plugin_id)
                     path.pop()
                     return False
@@ -343,9 +373,10 @@ class DependencyResolver:
             path.pop()
             visited.add(plugin_id)
 
-            # Add to install order (post-order for dependencies first)
-            if plugin_id not in install_order:
-                install_order.append(plugin_id)
+            # Add to install order (post-order for dependencies first).
+            # Unconditional: the visited-guard above guarantees each
+            # plugin reaches this point at most once.
+            install_order.append(plugin_id)
 
             resolved[plugin_id] = plugin
             return True
