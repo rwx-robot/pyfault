@@ -135,6 +135,23 @@ class PluginRegistry:
         await self._load_index()
         self._loaded = True
 
+    @staticmethod
+    def _manifest_from_dict(raw: dict[str, Any]) -> PluginManifest:
+        """Build a manifest from serialized data (old nested format and
+        current flat format both store category as a string and datetimes
+        as ISO strings)."""
+        fields = {k: v for k, v in raw.items()
+                  if k in PluginManifest.__dataclass_fields__}
+        if isinstance(fields.get("created_at"), str):
+            fields["created_at"] = datetime.fromisoformat(
+                fields["created_at"])
+        if isinstance(fields.get("updated_at"), str):
+            fields["updated_at"] = datetime.fromisoformat(
+                fields["updated_at"])
+        # JSON always stores the enum's value string (both formats)
+        fields["category"] = PluginCategory(fields["category"])
+        return PluginManifest(**fields)
+
     async def _load_index(self) -> None:
         """Load plugin index from disk."""
         index_file = self.storage_path / "index.json"
@@ -142,22 +159,14 @@ class PluginRegistry:
             async with aiofiles.open(index_file) as f:
                 data = json.loads(await f.read())
                 for pkg_data in data:
-                    # Handle both old format (with "manifest" key) and new format (flat)
+                    # Handle both old format (with "manifest" key) and new
+                    # format (flat); both go through the same conversion so
+                    # category/datetime strings are normalized either way
                     if "manifest" in pkg_data:
-                        manifest = PluginManifest(**pkg_data["manifest"])
+                        manifest = self._manifest_from_dict(
+                            pkg_data["manifest"])
                     else:
-                        # Extract manifest fields from flat dict
-                        manifest_fields = {k: v for k, v in pkg_data.items()
-                                         if k in PluginManifest.__dataclass_fields__}
-                        # Handle datetime fields
-                        if "created_at" in manifest_fields and isinstance(manifest_fields["created_at"], str):
-                            manifest_fields["created_at"] = datetime.fromisoformat(manifest_fields["created_at"])
-                        if "updated_at" in manifest_fields and isinstance(manifest_fields["updated_at"], str):
-                            manifest_fields["updated_at"] = datetime.fromisoformat(manifest_fields["updated_at"])
-                        # Handle category enum
-                        if "category" in manifest_fields and isinstance(manifest_fields["category"], str):
-                            manifest_fields["category"] = PluginCategory(manifest_fields["category"])
-                        manifest = PluginManifest(**manifest_fields)
+                        manifest = self._manifest_from_dict(pkg_data)
 
                     pkg = PluginPackage(
                         manifest=manifest,
@@ -385,6 +394,10 @@ class PluginInstaller:
             shutil.rmtree(plugin_dir)
         pkg.status = PluginStatus.PENDING
         pkg.installed_at = None
+        # persist the reset — without this the index still advertised the
+        # plugin as installed after a restart (install() saves, uninstall
+        # didn't)
+        await self.registry._save_index()
         return True
 
     def is_installed(self, plugin_id: str) -> bool:
@@ -399,9 +412,13 @@ class PluginManager:
     High-level plugin management.
     """
 
-    def __init__(self, storage_path: str = "./data/plugins"):
+    def __init__(
+        self,
+        storage_path: str = "./data/plugins",
+        runtime_path: str = "./runtime",
+    ):
         self.registry = PluginRegistry(storage_path)
-        self.installer = PluginInstaller(self.registry)
+        self.installer = PluginInstaller(self.registry, runtime_path)
 
     async def initialize(self) -> None:
         await self.registry.initialize()
