@@ -87,7 +87,16 @@ class MetricsCollector:
 
     async def collect(self, name: Optional[str] = None) -> dict[str, ScalingMetric]:
         results = {}
-        collectors = {name: self._collectors[name]} if name else self._collectors
+        if name:
+            if name not in self._collectors:
+                # Unknown names used to raise a raw KeyError from outside the
+                # per-collector try/except, bypassing this method's own
+                # error-handling contract.
+                logger.error(f"Unknown metric collector: {name}")
+                return {}
+            collectors = {name: self._collectors[name]}
+        else:
+            collectors = self._collectors
 
         for metric_name, collector in collectors.items():
             try:
@@ -186,8 +195,10 @@ class ThresholdScalingStrategy(ScalingStrategy):
 class PredictiveScalingStrategy(ScalingStrategy):
     """Predictive scaling using trend analysis."""
 
-    def __init__(self, lookback_window: int = 600):
+    def __init__(self, lookback_window: int = 600,
+                 collector: Optional[MetricsCollector] = None):
         self.lookback_window = lookback_window
+        self.collector = collector
 
     async def evaluate(
         self,
@@ -202,13 +213,16 @@ class PredictiveScalingStrategy(ScalingStrategy):
         if not primary_metric:
             return None
 
-        # Get history from the metrics dict instead of external collector
-        # This requires the metrics to have history attached
-        history = getattr(primary_metric, 'history', [])
+        # Prefer history attached to the metric; otherwise read it from the
+        # shared MetricsCollector. Without the collector fallback this
+        # strategy could never fire at all: ScalingMetric carries no
+        # `history` field, so getattr always returned the default [] and
+        # evaluate() bailed out before ever predicting anything.
+        history = getattr(primary_metric, 'history', None)
+        if not history and self.collector is not None:
+            history = self.collector.get_metric_history(
+                primary_metric.name, self.lookback_window)
         if not history:
-            return None
-
-        if len(history) < 10:
             return None
 
         if len(history) < 10:
@@ -262,7 +276,10 @@ class AdaptiveScaler:
         self._policies: dict[str, ScalingPolicy] = {}
         self._strategies: dict[str, ScalingStrategy] = {
             "threshold": ThresholdScalingStrategy(),
-            "predictive": PredictiveScalingStrategy(),
+            # Wire the collector in: PredictiveScalingStrategy reads metric
+            # history through it (ScalingMetric itself carries no history).
+            "predictive": PredictiveScalingStrategy(
+                collector=self.metrics_collector),
         }
         self._resources: dict[str, dict[str, Any]] = {}
         self._last_action: dict[str, datetime] = {}
@@ -389,6 +406,10 @@ class AdaptiveScaler:
             self._task = None
 
     def get_history(self, limit: int = 100) -> list[ScalingAction]:
+        # list[-0:] == list[0:] -> a limit of 0 used to return the entire
+        # history instead of nothing.
+        if limit <= 0:
+            return []
         return self._action_history[-limit:]
 
     def get_status(self, resource_id: Optional[str] = None) -> dict:
