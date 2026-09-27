@@ -206,17 +206,35 @@ class Budget:
     created_at: datetime = field(default_factory=datetime.utcnow)
     updated_at: datetime = field(default_factory=datetime.utcnow)
 
+    def __post_init__(self) -> None:
+        # Validate/coerce period so the get_period_start/end enum chains
+        # below are exhaustive (raw string values like "monthly" are
+        # accepted; anything else fails fast instead of silently getting
+        # a degenerate no-op window).
+        self.period = BillingPeriod(self.period)
+
     def get_period_start(self, reference: Optional[datetime] = None) -> datetime:
         ref = reference or datetime.utcnow()
         if self.period == BillingPeriod.MONTHLY:
             return ref.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         elif self.period == BillingPeriod.WEEKLY:
-            return ref - timedelta(days=ref.weekday())
+            # Zero the time like every other period — anchoring at ref's
+            # time-of-day gave each call a different window, so spend from
+            # earlier in the week fell outside the current window.
+            return (ref - timedelta(days=ref.weekday())).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
         elif self.period == BillingPeriod.DAILY:
             return ref.replace(hour=0, minute=0, second=0, microsecond=0)
-        elif self.period == BillingPeriod.YEARLY:
+        elif self.period == BillingPeriod.HOURLY:
+            return ref.replace(minute=0, second=0, microsecond=0)
+        elif self.period == BillingPeriod.QUARTERLY:
+            quarter_month = ((ref.month - 1) // 3) * 3 + 1
+            return ref.replace(
+                month=quarter_month, day=1, hour=0, minute=0, second=0, microsecond=0
+            )
+        else:  # YEARLY — period validated in __post_init__
             return ref.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-        return ref
 
     def get_period_end(self, reference: Optional[datetime] = None) -> datetime:
         ref = reference or datetime.utcnow()
@@ -227,15 +245,27 @@ class Budget:
             return start + timedelta(days=7) - timedelta(seconds=1)
         elif self.period == BillingPeriod.DAILY:
             return start + timedelta(days=1) - timedelta(seconds=1)
-        elif self.period == BillingPeriod.YEARLY:
+        elif self.period == BillingPeriod.HOURLY:
+            return start + timedelta(hours=1) - timedelta(seconds=1)
+        elif self.period == BillingPeriod.QUARTERLY:
+            # First day of the next quarter minus one second
+            next_month = start.month + 3
+            next_year = start.year
+            if next_month > 12:
+                next_month -= 12
+                next_year += 1
+            return start.replace(year=next_year, month=next_month) - timedelta(seconds=1)
+        else:  # YEARLY — period validated in __post_init__
             return start.replace(year=start.year + 1) - timedelta(seconds=1)
-        return ref
 
     def is_in_period(self, timestamp: Optional[datetime] = None) -> bool:
-        ts = timestamp or datetime.utcnow()
-        start = self.get_period_start(ts)
-        end = self.get_period_end(ts)
-        return start <= ts <= end
+        # CB5 fix: windows are anchored at "now". Previously they were
+        # derived from `timestamp` itself, making the check tautologically
+        # true — every record passed, so a record from a long-closed period
+        # still fired current budget alerts (proof: 400-day-old record ->
+        # 200% utilization warnings).
+        ts = timestamp if timestamp is not None else datetime.utcnow()
+        return self.get_period_start() <= ts <= self.get_period_end()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -569,8 +599,9 @@ class CostTracker:
                 by_resource[r.resource_id].append(r)
 
             for resource_id, records in by_resource.items():
-                avg_usage = statistics.mean(r.quantity for r in records) if records else 0
-                max_usage = max(r.quantity for r in records) if records else 0
+                # Groups are built by appending, so records is never empty
+                avg_usage = statistics.mean(r.quantity for r in records)
+                max_usage = max(r.quantity for r in records)
 
                 # Low utilization - suggest downsizing
                 if avg_usage < 0.3 and max_usage < 0.5:
@@ -678,18 +709,18 @@ class CostTracker:
         """Find resources with no activity."""
         cutoff = datetime.utcnow() - timedelta(days=idle_days)
 
-        # Group by resource
+        # Group by resource — previously ANY recent record returned [] for
+        # every resource, so idle detection never fired while other
+        # resources were active.
         by_resource = defaultdict(list)
         for r in self._usage_records:
-            if r.end_time > cutoff:
-                return []  # Has recent activity
             by_resource[r.resource_id].append(r)
 
         idle = []
-        for _resource_id, records in by_resource.items():
+        for records in by_resource.values():
             latest = max(r.end_time for r in records)
             if latest < cutoff:
-                idle.append(records[-1])  # Latest record
+                idle.append(max(records, key=lambda r: r.end_time))  # Latest record
 
         return idle
 
@@ -708,7 +739,7 @@ class CostTracker:
 
         costs = list(daily_costs.values())
         mean = statistics.mean(costs)
-        stdev = statistics.stdev(costs) if len(costs) > 1 else 0
+        stdev = statistics.stdev(costs)  # len(costs) >= 7 guaranteed above
 
         # Coefficient of variation
         cv = stdev / mean if mean > 0 else 1.0
