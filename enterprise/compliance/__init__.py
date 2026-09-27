@@ -888,7 +888,7 @@ class ComplianceManager:
         assessment = ComplianceAssessment(
             framework=framework,
             tenant_id=tenant_id,
-            scope="full",
+            scope=scope,  # was hardcoded to "full" — caller's scope dropped
             controls_assessed=[c.control_id for c in controls],
             total_controls=len(controls),
             assessor=assessor,
@@ -906,12 +906,27 @@ class ComplianceManager:
         if not assessment:
             raise ValueError("Assessment not found")
 
-        # Use tenant implementations or global
-        impls = tenant_implementations or {
-            impl.control_id: impl
-            for impl in self._implementations.values()
-            if impl.control_id in assessment.controls_assessed
-        }
+        # Reset prior run — without this, re-running the same assessment
+        # accumulated counters (proof: second run doubled compliant and
+        # findings, inflating the score past reality).
+        assessment.compliant = 0
+        assessment.non_compliant = 0
+        assessment.partially_compliant = 0
+        assessment.not_applicable = 0
+        assessment.findings = []
+
+        # Use tenant implementations or global. An explicit EMPTY dict
+        # means "this tenant has no implementations" — it must not fall
+        # back to the global registry (proof: run with {} still reported
+        # global compliant controls).
+        if tenant_implementations is not None:
+            impls = tenant_implementations
+        else:
+            impls = {
+                impl.control_id: impl
+                for impl in self._implementations.values()
+                if impl.control_id in assessment.controls_assessed
+            }
 
         for control_id in assessment.controls_assessed:
             impl = impls.get(control_id)
@@ -1086,7 +1101,9 @@ class AutomatedComplianceChecker:
     async def run_checks(self, implementation_ids: Optional[list[str]] = None) -> dict[str, TestResult]:
         """Run automated checks for implementations."""
         impls = []
-        if implementation_ids:
+        if implementation_ids is not None:
+            # An explicit empty list means "check nothing" — not "check all"
+            # (proof: run_checks([]) used to run every implementation).
             impls = [self.manager._implementations[i] for i in implementation_ids if i in self.manager._implementations]
         else:
             impls = list(self.manager._implementations.values())
