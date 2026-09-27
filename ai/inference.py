@@ -124,7 +124,6 @@ class ModelRegistry:
     def __init__(self, storage_path: str = "./data/models"):
         self.storage_path = Path(storage_path)
         self.storage_path.mkdir(parents=True, exist_ok=True)
-        self._models: dict[str, ModelInstance] = {}
         self._metadata: dict[str, ModelMetadata] = {}
         self._backends: dict[str, ModelBackend] = {}
         self._loaded = False
@@ -221,12 +220,6 @@ class ModelRegistry:
     async def delete_model(self, model_id: str) -> bool:
         if model_id not in self._metadata:
             return False
-
-        # Remove from loaded models if loaded
-        if model_id in self._models:
-            model = self._models[model_id]
-            await model.unload()
-            del self._models[model_id]
 
         del self._metadata[model_id]
         await self._save_index()
