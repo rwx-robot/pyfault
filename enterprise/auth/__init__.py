@@ -23,7 +23,7 @@ import uuid
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
@@ -35,6 +35,16 @@ import jwt
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 logger = logging.getLogger(__name__)
+
+
+def _naive_utc_epoch(dt: datetime) -> int:
+    """Epoch seconds for a naive-UTC datetime.
+
+    datetime.timestamp() would interpret a naive datetime as local time,
+    shifting iat/exp by the UTC offset and minting tokens that are already
+    expired (or long-lived) on non-UTC hosts.
+    """
+    return int(dt.replace(tzinfo=timezone.utc).timestamp())
 
 
 class AuthProvider(str, Enum):
@@ -162,14 +172,24 @@ class Role:
     updated_at: datetime = field(default_factory=datetime.utcnow)
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def get_all_permissions(self, role_registry: "RoleRegistry") -> PermissionSet:
+    def get_all_permissions(
+        self, role_registry: "RoleRegistry", _seen: Optional[set[str]] = None
+    ) -> PermissionSet:
         """Get all permissions including inherited ones."""
+        if _seen is None:
+            _seen = set()
+        if self.role_id in _seen:
+            return PermissionSet()
+        _seen.add(self.role_id)
+
         all_perms = self.permissions.copy()
 
         for parent_id in self.parent_roles:
             parent = role_registry.get_role(parent_id)
             if parent:
-                all_perms = all_perms.union(parent.get_all_permissions(role_registry))
+                all_perms = all_perms.union(
+                    parent.get_all_permissions(role_registry, _seen)
+                )
 
         return all_perms
 
@@ -390,8 +410,8 @@ class TokenManager:
             "roles": roles,
             "perms": permissions,
             "sid": session_id,
-            "iat": int(now.timestamp()),
-            "exp": int((now + timedelta(seconds=self.access_token_ttl)).timestamp()),
+            "iat": _naive_utc_epoch(now),
+            "exp": _naive_utc_epoch(now + timedelta(seconds=self.access_token_ttl)),
             "iss": self.issuer,
             "aud": self.audience,
             "type": TokenType.ACCESS.value,
@@ -413,8 +433,8 @@ class TokenManager:
             "sub": user_id,
             "tid": tenant_id,
             "sid": session_id,
-            "iat": int(now.timestamp()),
-            "exp": int((now + timedelta(seconds=self.refresh_token_ttl)).timestamp()),
+            "iat": _naive_utc_epoch(now),
+            "exp": _naive_utc_epoch(now + timedelta(seconds=self.refresh_token_ttl)),
             "iss": self.issuer,
             "aud": self.audience,
             "type": TokenType.REFRESH.value,
@@ -436,14 +456,14 @@ class TokenManager:
             "tid": tenant_id,
             "kid": key_id,
             "perms": permissions,
-            "iat": int(now.timestamp()),
+            "iat": _naive_utc_epoch(now),
             "iss": self.issuer,
             "aud": self.audience,
             "type": TokenType.API_KEY.value,
         }
 
         if expires_at:
-            payload["exp"] = int(expires_at.timestamp())
+            payload["exp"] = _naive_utc_epoch(expires_at)
 
         return jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
 
@@ -498,9 +518,10 @@ class PasswordManager:
 
     def needs_rehash(self, password_hash: str) -> bool:
         try:
-            hash_info = bcrypt._hash_info(password_hash.encode())  # type: ignore[attr-defined]
-            return int(hash_info.rounds) < self.rounds
-        except Exception:
+            # Hash format: $2b$<rounds>$<salt+hash>
+            parts = password_hash.split("$")
+            return int(parts[2]) < self.rounds
+        except (IndexError, ValueError):
             return True
 
     def generate_secure_password(self, length: int = 16) -> str:
@@ -877,7 +898,7 @@ class AuthManager:
             return False, None, "Invalid credentials"
 
         # Success
-        attempts.clear()
+        self._login_attempts[key] = []
         user.failed_login_count = 0
         user.last_login = now
         return True, user, "Success"
@@ -1031,10 +1052,11 @@ class AuthManager:
 
         prefix, jwt_token = parts
 
-        # Find key by prefix
+        # Find key by hashing the presented raw key segment
+        provided_hash = hashlib.sha256(prefix.encode()).hexdigest()
         api_key = None
         for key in self._api_keys.values():
-            if key.key_prefix == prefix:
+            if hmac.compare_digest(key.key_hash, provided_hash):
                 api_key = key
                 break
 
