@@ -3,7 +3,7 @@ IoC Container for PyFault framework.
 """
 
 from enum import Enum
-from typing import Any
+from typing import Any, Optional
 
 
 class Scope(Enum):
@@ -18,10 +18,11 @@ class Container:
     IoC Container for managing service instances.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, injector: Optional[Any] = None) -> None:
         self._providers: dict[type, Any] = {}
         self._singletons: dict[type, Any] = {}
         self._scoped: dict[type, Any] = {}
+        self._injector = injector
 
     def register(self, token: type, provider: Any, scope: Scope = Scope.SINGLETON) -> None:
         """Register a provider."""
@@ -29,6 +30,10 @@ class Container:
             'provider': provider,
             'scope': scope,
         }
+
+    def set_injector(self, injector: Any) -> None:
+        """Set injector for dependency injection during resolution."""
+        self._injector = injector
 
     def resolve(self, token: type) -> Any:
         """Resolve a dependency."""
@@ -53,7 +58,10 @@ class Container:
             return self._scoped[token]
 
     def _create_instance(self, provider: Any) -> Any:
-        """Create an instance of the provider."""
+        """Create an instance of the provider with dependency injection."""
+        if self._injector is not None and isinstance(provider, type):
+            # Use injector for classes to enable dependency injection
+            return self._injector.inject(provider)
         if callable(provider):
             return provider()
         return provider

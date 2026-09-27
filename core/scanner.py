@@ -9,7 +9,7 @@ class MetadataKeys:
     """Metadata keys for decorators."""
     INJECTABLE = '__injectable__'
     CONTROLLER = '__controller__'
-    MODULE = '__module__'
+    MODULE = '__pyfault_module__'
     SCOPE = '__scope__'
     PREFIX = '__prefix__'
     ROUTES = '__routes__'

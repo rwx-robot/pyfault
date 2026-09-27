@@ -17,6 +17,7 @@ class PyFaultFactory:
     def __init__(self) -> None:
         self.container = Container()
         self.injector = Injector(self.container)
+        self.container.set_injector(self.injector)
         self.scanner = MetadataScanner()
 
     async def create(self, root_module: type, config: Optional[dict] = None) -> "PyFaultFactory":
@@ -68,4 +69,4 @@ class PyFaultFactory:
 
     def get_provider(self, token: type) -> Any:
         """Get a provider from the container with dependency injection."""
-        return self.injector.inject(token)
+        return self.container.resolve(token)

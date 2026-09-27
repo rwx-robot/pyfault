@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Optional
 
+from pyfault.common.decorators import injectable
+
 
 @dataclass
 class HealthStatus:
@@ -107,6 +109,7 @@ class MetricsCollector:
         return self._metrics
 
 
+@injectable()
 class MonitoringModule:
     """Monitoring module for dependency injection."""
 
