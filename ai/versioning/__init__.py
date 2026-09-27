@@ -78,17 +78,25 @@ class SemanticVersion:
         """Parse semantic version string."""
         import re
 
+        # Normalize: tolerate leading "v" (git-tag style: v1.2.3)
+        version = version.strip()
+        if version[:1] in ("v", "V"):
+            version = version[1:]
+
         # Regex for semver
         pattern = r'^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$'
-        match = re.match(pattern, version.strip())
+        match = re.match(pattern, version)
 
         if not match:
-            # Try simple version
+            # Try simple version (tolerate "v1.2.3", "1.2.x", "latest", ...)
             parts = version.split('.')
-            major = int(parts[0]) if parts else 0
-            minor = int(parts[1]) if len(parts) > 1 else 0
-            patch = int(parts[2]) if len(parts) > 2 else 0
-            return cls(major, minor, patch)
+
+            def _part(idx: int) -> int:
+                if idx < len(parts) and parts[idx].isdigit():
+                    return int(parts[idx])
+                return 0
+
+            return cls(_part(0), _part(1), _part(2))
 
         major_s, minor_s, patch_s, prerelease, build = match.groups()
         return cls(
@@ -375,13 +383,20 @@ class VersionRegistry:
         if version.version_id not in self._versions:
             return False
 
-        old_stage = self._versions[version.version_id].stage
         self._versions[version.version_id] = version
 
-        # Update stage index
-        if old_stage != version.stage:
-            self._stage_index[old_stage].discard(version.version_id)
-            self._stage_index[version.stage].add(version.version_id)
+        # Re-index unconditionally: callers typically mutate the stored
+        # object in place, so the "old" stage/name read below would already
+        # be the new value and the indexes would silently go stale.
+        for bucket in self._stage_index.values():
+            bucket.discard(version.version_id)
+        self._stage_index[version.stage].add(version.version_id)
+
+        for ids in self._name_index.values():
+            if version.version_id in ids:
+                ids.remove(version.version_id)
+                break
+        self._name_index[version.name].append(version.version_id)
 
         await self._save_index()
         return True
@@ -418,6 +433,11 @@ class VersionRegistry:
 
         if name:
             version_ids = self._name_index.get(name, [])
+            if stage:
+                version_ids = [
+                    vid for vid in version_ids
+                    if vid in self._versions and self._versions[vid].stage == stage
+                ]
         elif stage:
             version_ids = list(self._stage_index.get(stage, set()))
         else:
@@ -445,7 +465,7 @@ class VersionRegistry:
             VersionStage.TESTING: [VersionStage.STAGING, VersionStage.DEVELOPMENT],
             VersionStage.STAGING: [VersionStage.CANARY, VersionStage.PRODUCTION, VersionStage.TESTING],
             VersionStage.CANARY: [VersionStage.PRODUCTION, VersionStage.STAGING],
-            VersionStage.PRODUCTION: [VersionStage.DEPRECATED],
+            VersionStage.PRODUCTION: [VersionStage.DEPRECATED, VersionStage.STAGING],
             VersionStage.DEPRECATED: [VersionStage.ARCHIVED],
         }
 
@@ -488,18 +508,17 @@ class DeploymentManager:
 
     async def create_deployment(self, config: DeploymentConfig) -> Deployment:
         """Create a new deployment."""
-        deployment = Deployment(
-            deployment_id=config.deployment_id,
-            config=config,
-        )
-
-        self._deployments[config.deployment_id] = deployment
-
-        # Validate version exists
+        # Validate version exists BEFORE storing — otherwise a failed
+        # creation leaves a ghost pending deployment in _deployments.
         version = self.registry.get_version(config.version_id)
         if not version:
             raise ValueError(f"Version not found: {config.version_id}")
 
+        deployment = Deployment(
+            deployment_id=config.deployment_id,
+            config=config,
+        )
+        self._deployments[config.deployment_id] = deployment
         return deployment
 
     async def start_deployment(self, deployment_id: str) -> bool:
@@ -521,6 +540,13 @@ class DeploymentManager:
             self._deployment_task = asyncio.create_task(self._run_blue_green(deployment))
         elif deployment.config.strategy == DeploymentStrategy.ROLLING:
             self._deployment_task = asyncio.create_task(self._run_rolling(deployment))
+        else:
+            # RECREATE / A_B_TEST have no executor here — fail explicitly
+            # instead of claiming success and leaving status "running" forever.
+            deployment.status = "failed"
+            deployment.error = (
+                f"Unsupported deployment strategy: {deployment.config.strategy.value}")
+            return False
 
         return True
 
@@ -561,8 +587,19 @@ class DeploymentManager:
                 if deployment.current_traffic >= 100:
                     break
 
-            # Promote to production
-            await self.registry.promote_version(config.version_id, VersionStage.PRODUCTION)
+            # Promote to production — must actually succeed, otherwise the
+            # deployment would claim "completed" while the version never
+            # reached PRODUCTION (silent false success).
+            promoted = await self.registry.promote_version(
+                config.version_id, VersionStage.PRODUCTION)
+            if not promoted:
+                deployment.status = "failed"
+                deployment.error = (
+                    f"Promotion to production failed from {version.stage.value}")
+                if config.auto_rollback:
+                    await self._rollback(deployment, deployment.error)
+                return
+
             deployment.status = "completed"
             deployment.completed_at = datetime.utcnow()
 
@@ -773,12 +810,28 @@ class RollbackManager:
         # Get current production version
         current = self.registry.get_production_version(name)
 
-        # Demote current
+        # Demote current — abort if the transition is not allowed
         if current:
-            await self.registry.promote_version(current.version_id, VersionStage.STAGING)
+            demoted = await self.registry.promote_version(
+                current.version_id, VersionStage.STAGING)
+            if not demoted:
+                logger.error(
+                    f"Rollback aborted: cannot demote {current.version_id} "
+                    f"from production")
+                return False
 
-        # Promote target to production
-        await self.registry.promote_version(target_version_id, VersionStage.PRODUCTION)
+        # Promote target to production — on failure restore the previous
+        # production version so state is never left half-changed.
+        promoted = await self.registry.promote_version(
+            target_version_id, VersionStage.PRODUCTION)
+        if not promoted:
+            if current:
+                await self.registry.promote_version(
+                    current.version_id, VersionStage.PRODUCTION)
+            logger.error(
+                f"Rollback failed: cannot promote {target_version_id} "
+                f"to production")
+            return False
 
         # Record rollback
         self._rollback_history.append({
