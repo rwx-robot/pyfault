@@ -51,7 +51,7 @@ class ResourceLimit(str, Enum):
     """Resource limit types."""
     CPU_TIME = "cpu_time"      # CPU time in seconds
     WALL_TIME = "wall_time"    # Wall clock time in seconds
-    MEMORY = "memory"          # Memory in bytes
+    MEMORY = "memory"          # Memory in MB
     FILE_SIZE = "file_size"    # Max file size
     OPEN_FILES = "open_files"  # Max open file descriptors
     PROCESSES = "processes"    # Max child processes
@@ -338,7 +338,10 @@ def _process_sandbox_worker(
 
         # Get resource usage
         usage = resource.getrusage(resource.RUSAGE_SELF)
-        memory_mb = usage.ru_maxrss / 1024  # Linux: KB, macOS: bytes
+        if sys.platform == "darwin":
+            memory_mb = usage.ru_maxrss / (1024 * 1024)  # macOS: bytes
+        else:
+            memory_mb = usage.ru_maxrss / 1024  # Linux: KB
         cpu_time_ms = (usage.ru_utime + usage.ru_stime) * 1000
 
         result_queue.put({
@@ -386,25 +389,6 @@ class ProcessSandbox(Sandbox):
             self._process.terminate()
             self._process.join(timeout=5)
         return True
-
-    def _worker(
-        self,
-        func_data: bytes,
-        args_data: bytes,
-        kwargs_data: bytes,
-        result_queue: Queue,
-        config_dict: dict,
-    ) -> None:
-        """Worker process function."""
-        _process_sandbox_worker(func_data, args_data, kwargs_data, result_queue, config_dict)
-
-    @staticmethod
-    def _apply_limits(limits: dict) -> None:
-        _apply_resource_limits(limits)
-
-    @staticmethod
-    def _setup_filesystem(config_dict: dict) -> None:
-        _setup_sandbox_filesystem(config_dict)
 
     async def execute(
         self,
