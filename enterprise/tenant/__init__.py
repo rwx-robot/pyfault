@@ -377,8 +377,8 @@ class TenantManager:
 
         if domain:
             self._tenant_by_domain[domain] = tenant.tenant_id
-        if subdomain:
-            self._tenant_by_subdomain[subdomain] = tenant.tenant_id
+        if tenant.subdomain:
+            self._tenant_by_subdomain[tenant.subdomain] = tenant.tenant_id
 
         # Add admin
         tenant.admin_ids.append(owner_id)
@@ -478,26 +478,27 @@ class TenantManager:
         if not tenant:
             return False
 
+        old_domain = tenant.domain
+        old_subdomain = tenant.subdomain
+
         for key, value in updates.items():
             if hasattr(tenant, key) and key not in ["tenant_id", "owner_id", "created_at"]:
                 setattr(tenant, key, value)
 
         tenant.updated_at = datetime.utcnow()
 
-        # Handle domain/subdomain changes
+        # Handle domain/subdomain changes (reindex using pre-update values)
         if "domain" in updates:
-            old_domain = self._tenant_by_domain.get(tenant.domain, "")
-            if old_domain == tenant_id:
-                del self._tenant_by_domain[tenant.domain]
-            if value:
-                self._tenant_by_domain[value] = tenant_id
+            if old_domain and self._tenant_by_domain.get(old_domain) == tenant_id:
+                del self._tenant_by_domain[old_domain]
+            if tenant.domain:
+                self._tenant_by_domain[tenant.domain] = tenant_id
 
         if "subdomain" in updates:
-            old_subdomain = self._tenant_by_subdomain.get(tenant.subdomain, "")
-            if old_subdomain == tenant_id:
-                del self._tenant_by_subdomain[tenant.subdomain]
-            if value:
-                self._tenant_by_subdomain[value] = tenant_id
+            if old_subdomain and self._tenant_by_subdomain.get(old_subdomain) == tenant_id:
+                del self._tenant_by_subdomain[old_subdomain]
+            if tenant.subdomain:
+                self._tenant_by_subdomain[tenant.subdomain] = tenant_id
 
         return True
 
