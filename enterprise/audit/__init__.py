@@ -114,6 +114,15 @@ class AuditOutcome(str, Enum):
     PENDING = "pending"
 
 
+_SEVERITY_RANK: dict[AuditSeverity, int] = {
+    AuditSeverity.DEBUG: 0,
+    AuditSeverity.INFO: 1,
+    AuditSeverity.WARNING: 2,
+    AuditSeverity.ERROR: 3,
+    AuditSeverity.CRITICAL: 4,
+}
+
+
 @dataclass
 class AuditEvent:
     """Structured audit event."""
@@ -334,26 +343,32 @@ class AuditStore:
         prev_hash = ""
 
         for event in self._events:
-            if start_time and event.timestamp < start_time:
-                continue
-            if end_time and event.timestamp > end_time:
-                continue
-
             expected_hash = event.compute_hash(prev_hash)
-            if event.hash != expected_hash:
-                issues.append({
-                    "event_id": event.event_id,
-                    "expected_hash": expected_hash,
-                    "actual_hash": event.hash,
-                })
+            in_window = True
+            if start_time and event.timestamp < start_time:
+                in_window = False
+            if end_time and event.timestamp > end_time:
+                in_window = False
 
-            if event.previous_hash != prev_hash:
-                issues.append({
-                    "event_id": event.event_id,
-                    "issue": "Previous hash mismatch",
-                    "expected": prev_hash,
-                    "actual": event.previous_hash,
-                })
+            # Always advance the chain from the true predecessor, but only
+            # report issues for events inside the requested window — seeding
+            # prev_hash from "" at a window start produced false "tamper"
+            # reports for intact chains.
+            if in_window:
+                if event.hash != expected_hash:
+                    issues.append({
+                        "event_id": event.event_id,
+                        "expected_hash": expected_hash,
+                        "actual_hash": event.hash,
+                    })
+
+                if event.previous_hash != prev_hash:
+                    issues.append({
+                        "event_id": event.event_id,
+                        "issue": "Previous hash mismatch",
+                        "expected": prev_hash,
+                        "actual": event.previous_hash,
+                    })
 
             prev_hash = event.hash
 
@@ -440,8 +455,9 @@ class AuditLogger:
             except Exception as e:
                 logger.error(f"Audit handler error: {e}")
 
-        # Check alerts
-        if event.severity.value >= self._alert_threshold.value:
+        # Check alerts (rank order — string comparison put "error" below
+        # "warning" lexicographically, so ERROR/CRITICAL never fired)
+        if _SEVERITY_RANK[event.severity] >= _SEVERITY_RANK[self._alert_threshold]:
             for handler in self._alert_handlers:
                 try:
                     await handler(event)
@@ -476,11 +492,19 @@ class AuditLogger:
         tags: Optional[list[str]] = None,
     ) -> bool:
         """Log an audit event with simplified parameters."""
+        # Honor an explicitly passed actor_type; only infer when the caller
+        # left the default ("user") — previously the parameter was dropped
+        # entirely and actor_type was always recomputed from actor_id.
+        resolved_actor_type = actor_type
+        if resolved_actor_type == "user" and not actor_id:
+            resolved_actor_type = "system"
+
         event = AuditEvent(
             event_type=event_type,
             action=action,
             actor_id=actor_id,
-            actor_type="user" if actor_id else "system",
+            actor_type=resolved_actor_type,
+            actor_name=actor_name,
             tenant_id=tenant_id,
             resource_type=resource_type,
             resource_id=resource_id,
@@ -512,7 +536,7 @@ class AuditLogger:
             tenant_id=tenant_id,
             outcome=AuditOutcome.SUCCESS if success else AuditOutcome.FAILURE,
             severity=AuditSeverity.INFO if success else AuditSeverity.WARNING,
-            ip_address=kwargs.get("ip", ""),
+            ip_address=ip,
             user_agent=kwargs.get("user_agent", ""),
             session_id=kwargs.get("session_id", ""),
             details=kwargs.get("details", {}),
@@ -714,7 +738,10 @@ class ComplianceReporter:
             "report_type": "SOC 2 Type II",
             "period": {"start": start_time.isoformat(), "end": end_time.isoformat()},
             "tenant_id": tenant_id,
-            "total_events": len(await AuditQueryBuilder(self.store).time_range(start_time, end_time).execute()),
+            # Same filtered result as above — the old re-query here dropped
+            # the tenant filter, so tenant-scoped reports reported ALL
+            # tenants' events as total_events.
+            "total_events": len(events),
             "cc6_1_logical_access": {
                 "total_events": len(cc6_1),
                 "failed_logins": len([e for e in cc6_1 if e.event_type == AuditEventType.LOGIN_FAILED]),
