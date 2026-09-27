@@ -648,10 +648,18 @@ class SklearnBackend(InferenceBackend):
             return False
 
         try:
-            # Create dummy input
-            n_features = len(self._input_names) if self._input_names else 10
+            # Create dummy input with the model's real feature count
+            n_features = getattr(self._model, "n_features_in_", None)
+            if n_features is None:
+                n_features = len(self._input_names)
             dummy = np.random.randn(self.config.batch_size, n_features).astype(np.float32)
-            dummy_inputs = {self._input_names[0]: dummy} if self._input_names else {"input": dummy}
+            if len(self._input_names) == 1:
+                dummy_inputs = {self._input_names[0]: dummy}
+            else:
+                dummy_inputs = {
+                    name: dummy[:, i : i + 1]
+                    for i, name in enumerate(self._input_names)
+                }
 
             for _ in range(num_runs):
                 await self.predict(dummy_inputs)
