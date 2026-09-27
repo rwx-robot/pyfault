@@ -41,6 +41,12 @@ class RouteTarget:
     current_load: int = 0
     latency_ms: float = 0.0
     error_rate: float = 0.0
+    # per-target rolling counters (updated by IntelligentRouter.release;
+    # strategies read error_rate / latency_ms which must only reflect THIS
+    # target's own traffic)
+    release_count: int = field(default=0, init=False, repr=False, compare=False)
+    release_error_count: int = field(default=0, init=False, repr=False, compare=False)
+    release_latency_ms: float = field(default=0.0, init=False, repr=False, compare=False)
 
 
 class RoutingStrategyBase(ABC):
@@ -104,15 +110,20 @@ class WeightedStrategy:
 
         total_weight = sum(t.weight for t in healthy)
         if total_weight == 0:
-            return random.choice(targets)
+            # all healthy targets weigh nothing -> pick among healthy only
+            # (choosing from `targets` could return an unhealthy one)
+            return random.choice(healthy)
 
         rand = random.randint(1, total_weight)
         current = 0
+        selected: Optional[RouteTarget] = None
         for target in healthy:
             current += target.weight
-            if rand <= current:
-                return target
-        return healthy[-1]
+            if selected is None and rand <= current:
+                selected = target
+        # rand is in [1, total_weight] and the cumulative sum ends at
+        # total_weight, so selection is guaranteed by the last element
+        return selected
 
 
 class LatencyBasedStrategy:
@@ -123,10 +134,17 @@ class LatencyBasedStrategy:
         targets: list[RouteTarget],
         context: "RoutingContext",
     ) -> Optional[RouteTarget]:
-        healthy = [t for t in targets if t.healthy and t.latency_ms > 0]
+        healthy = [t for t in targets if t.healthy]
         if not healthy:
             return None
-        return min(healthy, key=lambda t: t.latency_ms)
+        # Prefer lowest measured latency; targets without measurements yet
+        # (latency_ms == 0, the dataclass default) are last resort instead of
+        # being excluded entirely — otherwise the default strategy could
+        # never route to a freshly registered target.
+        return min(
+            healthy,
+            key=lambda t: t.latency_ms if t.latency_ms > 0 else float("inf"),
+        )
 
 
 class HealthBasedStrategy:
@@ -263,7 +281,6 @@ class IntelligentRouter:
 
         if target:
             target.current_load += 1
-            self._stats[service]["total_requests"] += 1
 
         return target
 
@@ -273,20 +290,30 @@ class IntelligentRouter:
         for target in targets:
             if target.target_id == target_id:
                 target.current_load = max(0, target.current_load - 1)
-                self._stats[service]["total_requests"] += 1
 
+                # per-target rolling stats: latency_based / health_based read
+                # target.latency_ms and target.error_rate, so they must only
+                # reflect this target's own releases — not the service-wide
+                # average (which let one slow target poison every other).
+                target.release_count += 1
+                target.release_latency_ms += latency_ms
+                if not success:
+                    target.release_error_count += 1
+                target.error_rate = (
+                    target.release_error_count / target.release_count)
+                target.latency_ms = (
+                    target.release_latency_ms / target.release_count)
+
+                # service-level stats (total_requests counts completions,
+                # incremented here only — it used to also be incremented in
+                # route(), double-counting every request and halving
+                # error_rate / latency averages)
+                self._stats[service]["total_requests"] += 1
                 if success:
                     self._stats[service]["success_count"] += 1
                 else:
                     self._stats[service]["error_count"] += 1
-
                 self._stats[service]["total_latency_ms"] += latency_ms
-
-                # Update latency and error rate
-                total = self._stats[service]["total_requests"]
-                if total > 0:
-                    target.error_rate = self._stats[service]["error_count"] / total
-                    target.latency_ms = self._stats[service]["total_latency_ms"] / total
                 break
 
     def get_stats(self, service: Optional[str] = None) -> dict:
