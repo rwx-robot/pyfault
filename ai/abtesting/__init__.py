@@ -257,7 +257,24 @@ class AssignmentEngine:
             if context_value is None:
                 return False
 
-            if operator == "equals" and context_value != value or operator == "in" and context_value not in value or operator == "not_in" and context_value in value or operator == "greater_than" and context_value <= value or operator == "less_than" and context_value >= value or operator == "contains" and value not in str(context_value):
+            if operator == "equals":
+                matched = context_value == value
+            elif operator == "in":
+                matched = context_value in value
+            elif operator == "not_in":
+                matched = context_value not in value
+            elif operator == "greater_than":
+                matched = context_value > value
+            elif operator == "less_than":
+                matched = context_value < value
+            elif operator == "contains":
+                matched = value in str(context_value)
+            else:
+                # Unknown operator must not silently match everyone
+                logger.warning(f"Unknown targeting operator: {operator}")
+                return False
+
+            if not matched:
                 return False
 
         return True
@@ -269,7 +286,7 @@ class AssignmentEngine:
             cumulative = 0.0
             for variant in experiment.variants:
                 cumulative += variant.traffic_allocation
-                if rand <= cumulative:
+                if rand < cumulative:
                     return variant.variant_id
             return experiment.variants[-1].variant_id
 
@@ -282,7 +299,7 @@ class AssignmentEngine:
             cumulative = 0.0
             for variant in experiment.variants:
                 cumulative += variant.traffic_allocation
-                if normalized <= cumulative:
+                if normalized < cumulative:
                     return variant.variant_id
             return experiment.variants[-1].variant_id
 
@@ -303,7 +320,7 @@ class AssignmentEngine:
         cumulative = 0.0
         for variant in experiment.variants:
             cumulative += variant.traffic_allocation
-            if normalized <= cumulative:
+            if normalized < cumulative:
                 return variant.variant_id
         return experiment.variants[-1].variant_id
 
@@ -423,6 +440,7 @@ class StatisticalAnalyzer:
         treatment_conversions: int,
         treatment_total: int,
         alternative: str = "two-sided",
+        significance_level: float = 0.05,
     ) -> dict[str, Any]:
         """Analyze conversion rate difference (proportion z-test)."""
         if control_total == 0 or treatment_total == 0:
@@ -447,15 +465,16 @@ class StatisticalAnalyzer:
             p_value = stats.norm.cdf(z)
 
         # Confidence interval for difference
+        z_alpha = stats.norm.ppf(1 - significance_level / 2)
         se_diff = math.sqrt(p1*(1-p1)/control_total + p2*(1-p2)/treatment_total)
-        margin = 1.96 * se_diff
+        margin = z_alpha * se_diff
         diff = p2 - p1
         ci = (diff - margin, diff + margin)
 
         # Lift
         lift = diff / p1 if p1 > 0 else 0
         lift_se = se_diff / p1 if p1 > 0 else 0
-        lift_ci = (lift - 1.96 * lift_se, lift + 1.96 * lift_se)
+        lift_ci = (lift - z_alpha * lift_se, lift + z_alpha * lift_se)
 
         return {
             "control_rate": p1,
@@ -464,7 +483,8 @@ class StatisticalAnalyzer:
             "lift": lift,
             "z_score": z,
             "p_value": p_value,
-            "significant": p_value < 0.05,
+            # np.bool_ is not JSON-serializable and fails `is True` checks
+            "significant": bool(p_value < significance_level),
             "confidence_interval": ci,
             "lift_confidence_interval": lift_ci,
             "control_sample": control_total,
@@ -476,6 +496,7 @@ class StatisticalAnalyzer:
         control_values: list[float],
         treatment_values: list[float],
         equal_var: bool = False,
+        significance_level: float = 0.05,
     ) -> dict[str, Any]:
         """Analyze continuous metric difference (t-test)."""
         if len(control_values) < 2 or len(treatment_values) < 2:
@@ -492,9 +513,10 @@ class StatisticalAnalyzer:
         )
 
         # Confidence interval for difference
+        z_alpha = stats.norm.ppf(1 - significance_level / 2)
         diff = treatment_mean - control_mean
         se = math.sqrt(control_std**2/len(control_values) + treatment_std**2/len(treatment_values))
-        margin = 1.96 * se
+        margin = z_alpha * se
         ci = (diff - margin, diff + margin)
 
         # Effect size (Cohen's d)
@@ -504,18 +526,32 @@ class StatisticalAnalyzer:
         )
         cohens_d = diff / pooled_std if pooled_std > 0 else 0
 
+        # Lift vs control (delta-method CI) — should_stop_early's futility
+        # check reads lift_confidence_interval; without it the check would
+        # default to (0, 0) and declare every significant continuous metric
+        # futile regardless of how large the lift is.
+        if control_mean != 0:
+            lift = float(diff / control_mean)
+            lift_se = se / abs(control_mean)
+            lift_ci = (lift - z_alpha * lift_se, lift + z_alpha * lift_se)
+        else:
+            lift = 0.0
+            lift_ci = (0.0, 0.0)
+
         return {
             "control_mean": control_mean,
             "treatment_mean": treatment_mean,
             "control_std": control_std,
             "treatment_std": treatment_std,
             "difference": diff,
-            "lift": diff / control_mean if control_mean != 0 else 0,
+            "lift": lift,
             "t_statistic": t_stat,
             "p_value": p_value,
-            "significant": p_value < 0.05,
+            # np.bool_ is not JSON-serializable and fails `is True` checks
+            "significant": bool(p_value < significance_level),
             "confidence_interval": ci,
             "cohens_d": cohens_d,
+            "lift_confidence_interval": lift_ci,
             "control_sample": len(control_values),
             "treatment_sample": len(treatment_values),
         }
@@ -716,7 +752,7 @@ class ExperimentManager:
             "experiment_name": experiment.name,
             "status": experiment.status.value,
             "variants": [],
-            "metrics": [],
+            "metrics": [metric.to_dict() for metric in experiment.metrics],
         }
 
         for variant in experiment.variants:
@@ -764,6 +800,7 @@ class ExperimentManager:
                                 int(control_agg["denominator"]),
                                 int(agg["numerator"]),
                                 int(agg["denominator"]),
+                                significance_level=experiment.significance_level,
                             )
                         else:
                             # Get raw values for continuous analysis
@@ -777,7 +814,8 @@ class ExperimentManager:
                             treatment_values = [e.value for e in treatment_events]
 
                             analysis = self._analyzer.analyze_continuous(
-                                control_values, treatment_values
+                                control_values, treatment_values,
+                                significance_level=experiment.significance_level,
                             )
 
                         metric_result = {
@@ -791,7 +829,6 @@ class ExperimentManager:
                 variant_data["metrics"][metric.metric_id] = metric_result
 
             results["variants"].append(variant_data)
-            results["metrics"].append(metric.to_dict())
 
         return results
 
