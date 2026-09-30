@@ -53,7 +53,8 @@ class MetadataScanner:
     @staticmethod
     def get_routes(cls: type) -> list[dict]:
         """Get routes from a controller class and its methods."""
-        routes = MetadataScanner.get_metadata(cls, MetadataKeys.ROUTES) or []
+        # Copy to avoid mutating the shared class-level metadata on repeated calls
+        routes = list(MetadataScanner.get_metadata(cls, MetadataKeys.ROUTES) or [])
 
         # Also extract routes from methods
         for attr_name in dir(cls):

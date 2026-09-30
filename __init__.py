@@ -2,13 +2,24 @@
 PyFault - A Python web framework inspired by NestJS
 """
 
-__version__ = "2.9.0"
+__version__ = "1.1.1"
 __author__ = "PyFault Team"
 
 from pyfault.common.audit import AuditInterceptor, AuditModule
 from pyfault.common.auth import AuthGuard, AuthModule
 from pyfault.common.cache import CacheManager, CacheModule
 from pyfault.common.config import ConfigManager, ConfigModule
+from pyfault.common.decorators import (
+    body,
+    controller,
+    delete,
+    get,
+    injectable,
+    module,
+    param,
+    post,
+    put,
+)
 from pyfault.common.errors import AppException, ErrorCode, ErrorHandler
 from pyfault.common.monitoring import HealthCheck, MetricsCollector, MonitoringModule
 from pyfault.common.openapi import (
@@ -26,9 +37,10 @@ from pyfault.common.performance import (
 )
 from pyfault.common.queue import QueueModule, TaskQueue
 from pyfault.common.testing import MockService, TestClient, TestModule
+from pyfault.core.application import PyFault
 from pyfault.core.container import Container
-from pyfault.core.factory import PyFaultFactory
-from pyfault.core.injector import Injector
+from pyfault.core.factory import CircularDependencyError, PyFaultFactory
+from pyfault.core.injector import DependencyResolutionError, Injector
 from pyfault.core.scanner import MetadataScanner
 from pyfault.microservices import (
     MicroserviceClient,
@@ -44,6 +56,9 @@ __all__ = [
     "Injector",
     "MetadataScanner",
     "PyFaultFactory",
+    "PyFault",
+    "CircularDependencyError",
+    "DependencyResolutionError",
     "HttpAdapter",
     "WebSocketAdapter",
     "GraphQLAdapter",
@@ -78,4 +93,13 @@ __all__ = [
     "api",
     "operation",
     "schema",
+    "injectable",
+    "controller",
+    "module",
+    "get",
+    "post",
+    "put",
+    "delete",
+    "body",
+    "param",
 ]
