@@ -10,8 +10,17 @@ Lightweight runtime for executing functions at the edge with:
 """
 
 import asyncio
+import builtins
+import collections
+import functools
 import hashlib
+import itertools
+import json
 import logging
+import math
+import random
+import re
+import string
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -25,6 +34,56 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 R = TypeVar("R")
+
+# Restricted execution environment for user-supplied function code.
+#
+# NOTE: This is *defense-in-depth*, not a hard security boundary. ``exec`` with
+# a curated builtins table still cannot stop a determined attacker who can reach
+# object internals via literals (e.g. ``().__class__.__bases__[0].__subclasses__()``).
+# Untrusted code MUST additionally run inside OS-level isolation (separate
+# process / container / seccomp). We still remove import/eval/exec/file IO and
+# pre-inject a small set of safe, commonly-needed modules.
+_SAFE_MODULES: dict[str, Any] = {
+    "json": json,
+    "math": math,
+    "re": re,
+    "random": random,
+    "string": string,
+    "collections": collections,
+    "itertools": itertools,
+    "functools": functools,
+    "time": time,
+    "datetime": datetime,
+}
+
+# Allowed builtins for function code. Deliberately excludes import/eval/exec/
+# compile/open/globals/locals/vars/getattr/setattr/delattr/input/exit/quit/help
+# and other escape primitives.
+_SAFE_BUILTIN_NAMES: tuple[str, ...] = (
+    "abs", "all", "any", "ascii", "bin", "bool", "bytearray", "bytes",
+    "callable", "chr", "complex", "dict", "divmod", "enumerate", "filter",
+    "float", "format", "frozenset", "hex", "int", "isinstance", "issubclass",
+    "iter", "len", "list", "map", "max", "min", "next", "object", "oct",
+    "ord", "pow", "print", "range", "repr", "reversed", "round", "set",
+    "slice", "sorted", "str", "sum", "tuple", "type", "zip",
+    "BaseException", "Exception", "ValueError", "TypeError", "KeyError",
+    "IndexError", "RuntimeError", "StopIteration", "AttributeError",
+    "ArithmeticError", "ZeroDivisionError", "OverflowError",
+    "FileNotFoundError", "NotImplementedError", "Warning", "UserWarning",
+)
+
+_SAFE_BUILTINS: dict[str, Any] = {
+    name: getattr(builtins, name)
+    for name in _SAFE_BUILTIN_NAMES
+    if hasattr(builtins, name)
+}
+
+# Globals dict handed to exec() for every user function.
+PYTHON_EXECUTOR_SAFE_GLOBALS: dict[str, Any] = {
+    "__builtins__": _SAFE_BUILTINS,
+    "__name__": "__edge_function__",
+    **_SAFE_MODULES,
+}
 
 
 class FunctionRuntime(str, Enum):
@@ -197,8 +256,13 @@ class PythonExecutor(FunctionExecutor):
     async def initialize(self, config: FunctionConfig) -> bool:
         self._config = config
         try:
-            # Execute function code to define handler
-            exec(config.code, self._globals)
+            # Execute function code in a *restricted* namespace. Only the curated
+            # builtins and pre-injected safe modules are visible; import/eval/
+            # exec/file IO are unavailable to user code. Each deployment gets a
+            # fresh copy so functions cannot leak state into one another.
+            safe_globals = dict(PYTHON_EXECUTOR_SAFE_GLOBALS)
+            exec(config.code, safe_globals)
+            self._globals = safe_globals
 
             # Verify handler exists
             if config.handler not in self._globals:
@@ -318,6 +382,7 @@ class EdgeRuntime:
         self._executors: dict[str, FunctionExecutor] = {}
         self._metrics: dict[str, FunctionMetrics] = defaultdict(FunctionMetrics)
         self._invocation_semaphore = asyncio.Semaphore(max_concurrent_invocations)
+        self._reserved_semaphores: dict[str, asyncio.Semaphore] = {}
         self._running = False
 
     async def deploy_function(self, config: FunctionConfig) -> bool:
@@ -340,6 +405,11 @@ class EdgeRuntime:
         self._functions[config.function_id] = config
         self._executors[config.function_id] = executor
         self._metrics[config.function_id] = FunctionMetrics(function_id=config.function_id)
+
+        # Per-function reserved concurrency limiter (falls back to the global
+        # limiter when not configured). Replaces the previous no-op placeholder.
+        cap = config.reserved_concurrency if (config.reserved_concurrency or 0) > 0 else self.max_concurrent
+        self._reserved_semaphores[config.function_id] = asyncio.Semaphore(cap)
 
         logger.info(f"Deployed function: {config.name} ({config.function_id})")
         return True
@@ -378,6 +448,7 @@ class EdgeRuntime:
 
         del self._functions[function_id]
         del self._metrics[function_id]
+        self._reserved_semaphores.pop(function_id, None)
 
         logger.info(f"Undeployed function: {function_id}")
         return True
@@ -409,26 +480,32 @@ class EdgeRuntime:
                 error="Function not ready",
             )
 
-        # Check concurrency limit
-        if config.reserved_concurrency > 0:
-            # Use reserved concurrency
-            pass
+        # Enforce per-function reserved concurrency (if configured), layered on
+        # top of the global invocation limiter.
+        reserved = self._reserved_semaphores.get(function_id)
 
-        async with self._invocation_semaphore:
-            request = InvocationRequest(
-                function_id=function_id,
-                payload=payload or {},
-                headers=headers or {},
-                context=context or {},
-                trace_id=trace_id or str(uuid.uuid4()),
-            )
+        async def _run() -> InvocationResponse:
+            async with self._invocation_semaphore:
+                request = InvocationRequest(
+                    function_id=function_id,
+                    payload=payload or {},
+                    headers=headers or {},
+                    context=context or {},
+                    trace_id=trace_id or str(uuid.uuid4()),
+                )
 
-            response = await executor.invoke(config, request)
+                response = await executor.invoke(config, request)
 
-            # Update metrics
-            self._update_metrics(function_id, response)
+                # Update metrics
+                self._update_metrics(function_id, response)
 
-            return response
+                return response
+
+        if reserved is not None:
+            async with reserved:
+                return await _run()
+
+        return await _run()
 
     def _update_metrics(self, function_id: str, response: InvocationResponse) -> None:
         metrics = self._metrics[function_id]

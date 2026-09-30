@@ -22,8 +22,12 @@ class WebSocketAdapter:
         """Register a WebSocket handler."""
         self._handlers[path] = handler
 
-    def add_websocket_route(self, path: str, handler: Callable) -> None:
-        """Add a WebSocket route."""
+    def _build_endpoint(self, path: str) -> Callable:
+        """Build the shared WebSocket endpoint loop for a registered path.
+
+        Both :meth:`add_websocket_route` and :meth:`ws` delegate here so the
+        connection/dispatch logic lives in exactly one place.
+        """
         async def websocket_endpoint(websocket: WebSocket) -> None:
             await websocket.accept()
             try:
@@ -49,53 +53,34 @@ class WebSocketAdapter:
                         except WebSocketDisconnect:
                             break
                         except Exception:
-                            # Close connection on handler error
+                            # Surface a sanitized error frame (no internal details
+                            # leaked) and then close the connection.
+                            try:
+                                if websocket.client_state == WebSocketState.CONNECTED:
+                                    await websocket.send_json(
+                                        {"error": "handler execution failed"}
+                                    )
+                            except RuntimeError:
+                                pass
                             with contextlib.suppress(RuntimeError):
                                 await websocket.close()
                             break
             except WebSocketDisconnect:
                 pass
 
-        route = WebSocketRoute(path, endpoint=websocket_endpoint)
+        return websocket_endpoint
+
+    def add_websocket_route(self, path: str, handler: Callable) -> None:
+        """Add a WebSocket route."""
+        self.register_handler(path, handler)
+        route = WebSocketRoute(path, endpoint=self._build_endpoint(path))
         self.routes.append(route)
 
     def ws(self, path: str) -> Callable[[Callable], Callable]:
         """Decorator for WebSocket route."""
         def decorator(func: Callable) -> Callable:
-            self._handlers[path] = func
-
-            async def websocket_endpoint(websocket: WebSocket) -> None:
-                await websocket.accept()
-                try:
-                    while websocket.client_state == WebSocketState.CONNECTED:
-                        try:
-                            data = await websocket.receive_json()
-                        except WebSocketDisconnect:
-                            break
-                        except RuntimeError as e:
-                            if "not connected" in str(e) or "closed" in str(e).lower():
-                                break
-                            raise
-
-                        try:
-                            result = await func(websocket, data)
-                            # Try to send response; if connection closed, break
-                            try:
-                                if websocket.client_state == WebSocketState.CONNECTED:
-                                    await websocket.send_json(result)
-                            except RuntimeError:
-                                break
-                        except WebSocketDisconnect:
-                            break
-                        except Exception:
-                            # Close connection on handler error
-                            with contextlib.suppress(RuntimeError):
-                                await websocket.close()
-                            break
-                except WebSocketDisconnect:
-                    pass
-
-            route = WebSocketRoute(path, endpoint=websocket_endpoint)
+            self.register_handler(path, func)
+            route = WebSocketRoute(path, endpoint=self._build_endpoint(path))
             self.routes.append(route)
             return func
         return decorator

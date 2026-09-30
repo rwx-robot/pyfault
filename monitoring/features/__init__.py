@@ -9,6 +9,7 @@ Centralized feature management for ML:
 - Feature transformation pipelines
 """
 
+import ast
 import asyncio
 import hashlib
 import json
@@ -29,6 +30,49 @@ import pandas as pd
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 logger = logging.getLogger(__name__)
+
+
+# Allowlist-based validation for user-supplied transformation expressions.
+#
+# `eval` with an empty ``__builtins__`` is NOT sufficient: dunder-attribute
+# chains such as ``().__class__.__bases__[0].__subclasses__()`` reach dangerous
+# classes purely via literals, with no builtins involved. We therefore parse the
+# expression with ``ast`` and reject anything that is not an explicitly allowed
+# operation before evaluating it in a restricted namespace.
+_ALLOWED_TRANSFORM_NAMES = frozenset({"pd", "np", "datetime", "timedelta", "data"})
+
+_ALLOWED_TRANSFORM_NODES = (
+    ast.Expression, ast.Constant, ast.Name, ast.Load, ast.Store,
+    ast.UnaryOp, ast.BinOp, ast.BoolOp, ast.Compare, ast.IfExp,
+    ast.Subscript, ast.Slice, ast.List, ast.Tuple, ast.Dict, ast.Set,
+    ast.Call, ast.Attribute, ast.keyword,
+    ast.ListComp, ast.DictComp, ast.SetComp, ast.comprehension,
+    # Operators (visited by ast.walk as standalone nodes).
+    ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow,
+    ast.LShift, ast.RShift, ast.BitOr, ast.BitXor, ast.BitAnd, ast.MatMult,
+    ast.UAdd, ast.USub, ast.Not, ast.Invert, ast.And, ast.Or,
+    ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
+    ast.Is, ast.IsNot, ast.In, ast.NotIn,
+)
+
+
+def _validate_transformation_expr(expr: str) -> None:
+    """Raise ``ValueError`` if ``expr`` uses anything outside the allowlist."""
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError as exc:
+        raise ValueError(f"Invalid transformation expression: {exc}") from exc
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            # Block dunder access — the primary sandbox-escape vector.
+            if node.attr.startswith("__") and node.attr.endswith("__"):
+                raise ValueError(f"Disallowed attribute access: {node.attr!r}")
+        elif isinstance(node, ast.Name):
+            if node.id not in _ALLOWED_TRANSFORM_NAMES:
+                raise ValueError(f"Disallowed name: {node.id!r}")
+        elif not isinstance(node, _ALLOWED_TRANSFORM_NODES):
+            raise ValueError(f"Disallowed expression element: {type(node).__name__}")
 
 
 class FeatureType(str, Enum):
@@ -330,10 +374,11 @@ class FeatureStore:
                 logger.error(f"Transformation {feature.transformation} failed: {e}")
                 return pd.Series([feature.default_value] * len(data), index=data.index)
 
-        # Try eval for simple expressions (with safety)
+        # Try eval for simple expressions, after validating against an allowlist.
         try:
-            # Only allow safe operations; an empty __builtins__ prevents Python
-            # from silently injecting real builtins (e.g. __import__, open)
+            # Reject anything outside the allowlist (see _validate_transformation_expr)
+            # before evaluating in a restricted namespace with empty builtins.
+            _validate_transformation_expr(feature.transformation)
             safe_globals = {
                 "pd": pd,
                 "np": np,

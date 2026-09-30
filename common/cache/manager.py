@@ -2,6 +2,7 @@
 Cache Manager for PyFault framework.
 """
 
+import asyncio
 import time
 from functools import wraps
 from typing import Any, Callable, Optional
@@ -14,15 +15,19 @@ class CacheManager:
         self._cache: dict[str, tuple[Any, float]] = {}
         self._default_ttl: int = 300  # 5 minutes
 
-    def get(self, key: str) -> Optional[Any]:
-        """Get value from cache."""
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get value from cache.
+
+        Returns ``default`` (``None`` by default) when the key is missing or
+        expired, so a *stored* ``None`` is distinguishable from a cache miss.
+        """
         if key in self._cache:
             value, expiry = self._cache[key]
             if expiry > time.time():
                 return value
             else:
                 del self._cache[key]
-        return None
+        return default
 
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
         """Set value in cache."""
@@ -44,23 +49,36 @@ class CacheManager:
         return self.get(key) is not None
 
     def cache(self, ttl: Optional[int] = None) -> Callable[..., Any]:
-        """Decorator for caching function results."""
+        """Decorator for caching function results.
+
+        Works for both synchronous and coroutine functions. ``None`` is a valid
+        cached value (distinguished from a miss via a per-decoration sentinel),
+        so a function returning ``None`` is cached exactly once.
+        """
         def decorator(func: Any) -> Any:
+            sentinel = object()  # unique per-decoration miss marker
+
             @wraps(func)
-            async def wrapper(*args: Any, **kwargs: Any) -> Any:
-                # Create cache key from function name and arguments
+            def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
                 key = f"{func.__name__}:{str(args)}:{str(kwargs)}"
-
-                # Try to get from cache
-                cached = self.get(key)
-                if cached is not None:
+                cached = self.get(key, sentinel)
+                if cached is not sentinel:
                     return cached
+                result = func(*args, **kwargs)
+                self.set(key, result, ttl)
+                return result
 
-                # Execute function and cache result
+            @wraps(func)
+            async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                key = f"{func.__name__}:{str(args)}:{str(kwargs)}"
+                cached = self.get(key, sentinel)
+                if cached is not sentinel:
+                    return cached
                 result = await func(*args, **kwargs)
                 self.set(key, result, ttl)
                 return result
-            return wrapper
+
+            return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
         return decorator
 
 

@@ -117,7 +117,15 @@ class ValidationMiddleware(CommandMiddleware):
 
 
 class RetryMiddleware(CommandMiddleware):
-    """Middleware for retrying failed commands."""
+    """Middleware for retrying *transient* (infrastructure) failures.
+
+    Retries ONLY when the downstream handler raises an exception (e.g. network
+    timeout, DB unavailable). A returned business result — whether ``success``
+    or an explicit business failure — is **never** retried; it is returned
+    immediately. This prevents business-logic failures from being silently
+    masked, amplified, or turned into misleading "failed after N attempts"
+    messages.
+    """
 
     def __init__(self, max_retries: int = 3, delay: float = 1.0, backoff: float = 2.0):
         self.max_retries = max_retries
@@ -131,15 +139,17 @@ class RetryMiddleware(CommandMiddleware):
         for attempt in range(self.max_retries + 1):
             try:
                 result = await next_handler(command)
-                if result.success:
-                    return result
-                last_error = result.error
-            except Exception as e:
-                last_error = str(e)
+            except Exception as exc:  # transient infrastructure failure -> retry
+                last_error = str(exc)
+            else:
+                # Business result (success or explicit failure): never retry.
+                return result
 
-            if attempt < self.max_retries:
-                await asyncio.sleep(delay)
-                delay *= self.backoff
+            # Reached only when an exception was raised.
+            if attempt >= self.max_retries:
+                break
+            await asyncio.sleep(delay)
+            delay *= self.backoff
 
         from pyfault.common.cqrs.command import CommandResult
         return CommandResult(
@@ -150,28 +160,64 @@ class RetryMiddleware(CommandMiddleware):
 
 
 class IdempotencyMiddleware(CommandMiddleware):
-    """Middleware for command idempotency."""
+    """Middleware for command idempotency.
 
-    def __init__(self, store: Optional[dict] = None):
-        # Keep the caller's dict when provided (even if empty) so results
-        # can be inspected or shared from outside.
+    Results are memoized by ``command_id`` so a duplicate command returns the
+    original result instead of re-executing the handler. To prevent unbounded
+    memory growth the store is bounded by ``max_size`` (oldest entries evicted
+    first, FIFO) and — when ``ttl`` is set — entries expire after that many
+    seconds.
+    """
+
+    def __init__(self, store: Optional[dict] = None, max_size: int = 10000, ttl: Optional[float] = None):
+        # Keep the caller's dict when provided (even if empty) so results can
+        # be inspected or shared from outside; otherwise use a fresh dict.
         self._processed = store if store is not None else {}
+        self._max_size = max(1, int(max_size))
+        self._ttl = ttl
+        self._expiry: dict = {}
+
+    def _is_expired(self, command_id: str) -> bool:
+        if self._ttl is None:
+            return False
+        exp = self._expiry.get(command_id)
+        if exp is None:
+            return False
+        if time.monotonic() >= exp:
+            self._processed.pop(command_id, None)
+            self._expiry.pop(command_id, None)
+            return True
+        return False
+
+    def _evict_one(self) -> None:
+        # Python dicts (3.7+) preserve insertion order, so the first key is the
+        # oldest. Only called when already at capacity.
+        if len(self._processed) < self._max_size:
+            return
+        oldest = next(iter(self._processed))
+        self._processed.pop(oldest, None)
+        self._expiry.pop(oldest, None)
 
     async def execute(self, command: "Command", next_handler: Callable[..., Awaitable[CommandResult]]) -> "CommandResult":
-        # Check if command was already processed
-        if command.command_id in self._processed:
+        command_id = command.command_id
+
+        # Return cached result when present and not expired.
+        if command_id in self._processed and not self._is_expired(command_id):
             from pyfault.common.cqrs.command import CommandResult
             return CommandResult(
                 success=True,
-                command_id=command.command_id,
-                metadata={"idempotent": True, "original": self._processed[command.command_id].to_dict()},
+                command_id=command_id,
+                metadata={"idempotent": True, "original": self._processed[command_id].to_dict()},
             )
 
         result = await next_handler(command)
 
-        # Store successful results
+        # Store successful results only; bound the store to avoid leaks.
         if result.success:
-            self._processed[command.command_id] = result
+            self._evict_one()
+            self._processed[command_id] = result
+            if self._ttl is not None:
+                self._expiry[command_id] = time.monotonic() + self._ttl
 
         return result
 

@@ -37,8 +37,11 @@ class ConfigManager:
                 if not attr.startswith('_'):
                     self._config[attr] = getattr(config_module, attr)
 
-    def get(self, key: str, default: Any = None) -> Any:
+    def get(self, key: Optional[str], default: Any = None) -> Any:
         """Get configuration value."""
+        if not isinstance(key, str):
+            # Non-string keys (e.g. None) can't be navigated; treat as missing.
+            return default
         keys = key.split('.')
         value = self._config
 
@@ -66,8 +69,10 @@ class ConfigManager:
         """Get all configuration."""
         return self._config.copy()
 
-    def has(self, key: str) -> bool:
+    def has(self, key: Optional[str]) -> bool:
         """Check if configuration key exists."""
+        if not isinstance(key, str):
+            return False
         return self.get(key) is not None
 
     def environment(self, key: str, default: Any = None) -> Any:
