@@ -3,7 +3,9 @@ Authentication Module for PyFault framework.
 """
 
 import hashlib
+import hmac
 import secrets
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
@@ -67,7 +69,6 @@ class AuthModule:
 
     def verify_token(self, token: str) -> Optional[User]:
         """Verify access token and return user."""
-        # Simple verification (in production, use JWT)
         user_id = self._decrypt_token(token)
         if user_id and user_id in self._users:
             return self._users[user_id]
@@ -131,17 +132,38 @@ class AuthModule:
         )
 
     def _encrypt_token(self, user_id: str) -> str:
-        """Encrypt user ID to token."""
-        # Simple encryption (in production, use JWT)
-        return f"{user_id}:{secrets.token_hex(16)}"
+        """Create an HMAC-signed access token (format: <user_id>:<expiry>:<jti>.<sig>)."""
+        expiry = int(time.time()) + self.token_ttl
+        jti = secrets.token_hex(8)
+        payload = f"{user_id}:{expiry}:{jti}"
+        sig = self._sign(payload)
+        return f"{payload}.{sig}"
 
     def _decrypt_token(self, token: str) -> Optional[str]:
-        """Decrypt token to user ID."""
-        # Simple decryption (in production, use JWT)
-        parts = token.split(':')
-        if len(parts) == 2:
-            return parts[0]
-        return None
+        """Verify HMAC signature and expiry, return user_id or None if forged/expired."""
+        if not token or '.' not in token:
+            return None
+        payload, sep, sig = token.partition('.')
+        if not sep or not self._verify(payload, sig):
+            return None  # forged or tampered token
+        try:
+            user_id, expiry, _jti = payload.split(':')
+            if int(expiry) < int(time.time()):
+                return None  # expired
+        except (ValueError, TypeError):
+            return None
+        return user_id
+
+    def _sign(self, payload: str) -> str:
+        return hmac.new(
+            self.secret_key.encode(),
+            payload.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+
+    def _verify(self, payload: str, sig: str) -> bool:
+        expected = self._sign(payload)
+        return hmac.compare_digest(expected, sig)
 
 
 class AuthGuard:
