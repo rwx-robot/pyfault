@@ -32,14 +32,26 @@ class MicroserviceClient:
             )
 
     async def send(self, pattern: str, data: Any = None) -> Any:
-        """Send a message."""
+        """Send a message and read the full JSON response (handles chunking)."""
         message = json.dumps({'pattern': pattern, 'data': data})
         if self._connection:
             reader, writer = self._connection
             writer.write(message.encode())
             await writer.drain()
-            response = await reader.read(1024)
-            return json.loads(response.decode())
+            raw = b''
+            while True:
+                chunk = await reader.read(4096)
+                if not chunk:
+                    break
+                raw += chunk
+                try:
+                    return json.loads(raw.decode())
+                except json.JSONDecodeError:
+                    # Response may span multiple reads; keep buffering.
+                    continue
+            if not raw:
+                return None
+            return json.loads(raw.decode())
         return None
 
     async def close(self) -> None:
@@ -74,20 +86,44 @@ class MicroserviceServer:
         async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
             try:
                 while True:
-                    data = await reader.read(1024)
+                    data = b''
+                    while True:
+                        chunk = await reader.read(4096)
+                        if not chunk:
+                            break
+                        data += chunk
+                        try:
+                            message = json.loads(data.decode())
+                            break
+                        except json.JSONDecodeError:
+                            continue
                     if not data:
                         break
 
-                    message = json.loads(data.decode())
                     pattern = message.get('pattern')
                     payload = message.get('data')
 
                     if pattern in self._handlers:
-                        result = await self._handlers[pattern](payload)
-                        writer.write(json.dumps(result).encode())
-                        await writer.drain()
+                        try:
+                            result = self._handlers[pattern](payload)
+                            # Support both sync handlers and coroutine handlers.
+                            if asyncio.iscoroutine(result):
+                                result = await result
+                            response = {'success': True, 'data': result}
+                        except Exception as e:  # surface handler errors as structured response
+                            response = {'success': False, 'error': str(e)}
+                    else:
+                        response = {'success': False, 'error': f'No handler for pattern: {pattern}'}
+
+                    writer.write(json.dumps(response).encode())
+                    await writer.drain()
             except Exception as e:
-                print(f"Error: {e}")
+                # Last-resort: never let a stray error kill the server silently.
+                try:
+                    writer.write(json.dumps({'success': False, 'error': str(e)}).encode())
+                    await writer.drain()
+                except Exception:
+                    pass
             finally:
                 writer.close()
 

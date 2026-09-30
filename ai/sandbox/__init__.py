@@ -27,7 +27,7 @@ import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -713,7 +713,10 @@ except Exception as e:
             )
 
         finally:
-            os.unlink(script_path)
+            # Use missing_ok semantics: cleanup must never mask the real result
+            # (and must tolerate sandbox shims that intercept/block os.remove).
+            with suppress(FileNotFoundError):
+                os.unlink(script_path)
             if sandbox_result is None:
                 sandbox_result = SandboxResult(
                     success=False,
