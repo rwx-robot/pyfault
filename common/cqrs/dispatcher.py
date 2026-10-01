@@ -91,7 +91,7 @@ class LoggingMiddleware(CommandMiddleware):
             return result
         except Exception as e:
             duration = (time.time() - start) * 1000
-            self.logger(f"[{type(message).__name__}] {type(message).__name__} - ERROR ({duration:.2f}ms): {e}")
+            self.logger(f"[{msg_type}] {type(message).__name__} [{msg_id}] - ERROR ({duration:.2f}ms): {e}")
             raise
 
 

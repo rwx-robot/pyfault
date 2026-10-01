@@ -73,17 +73,18 @@ class LoggingMiddleware:
         start = time.time()
 
         msg_type = "Command" if hasattr(message, 'command_id') else "Query"
-        self.logger(f"[{msg_type}] {type(message).__name__} [{getattr(message, 'command_id', getattr(message, 'query_id', 'unknown'))}] - START")
+        msg_id = getattr(message, 'command_id', getattr(message, 'query_id', 'unknown'))
+        self.logger(f"[{msg_type}] {type(message).__name__} [{msg_id}] - START")
 
         try:
             result = await next_handler(message)
             duration = (time.time() - start) * 1000
             status = "SUCCESS" if getattr(result, 'success', True) else "FAILED"
-            self.logger(f"[{msg_type}] {type(message).__name__} [{getattr(message, 'command_id', getattr(message, 'query_id', 'unknown'))}] - {status} ({duration:.2f}ms)")
+            self.logger(f"[{msg_type}] {type(message).__name__} [{msg_id}] - {status} ({duration:.2f}ms)")
             return result
         except Exception as e:
             duration = (time.time() - start) * 1000
-            self.logger(f"[{type(message).__name__}] {type(message).__name__} - ERROR ({duration:.2f}ms): {e}")
+            self.logger(f"[{msg_type}] {type(message).__name__} [{msg_id}] - ERROR ({duration:.2f}ms): {e}")
             raise
 
 
