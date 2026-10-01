@@ -23,6 +23,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Optional, cast
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -171,8 +173,8 @@ class PluginManifest:
     config_schema: dict[str, Any] = field(default_factory=dict)
     permissions: list[str] = field(default_factory=list)
 
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -448,7 +450,7 @@ class LockFileManager:
         """Generate lock file from resolution."""
         lock_data: dict[str, Any] = {
             "version": 1,
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": utc_now().isoformat(),
             "plugins": {},
         }
 

@@ -21,6 +21,8 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Callable, Optional
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,7 +53,7 @@ class HealthCheckResult:
     dimension: HealthDimension
     service_name: str
     region_id: str
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     value: float = 0.0
     threshold: float = 0.0
     healthy: bool = True
@@ -82,7 +84,7 @@ class RegionHealthReport:
     overall_score: float = 0.0
     dimension_scores: dict[str, float] = field(default_factory=dict)
     checks: list[HealthCheckResult] = field(default_factory=list)
-    last_updated: datetime = field(default_factory=datetime.utcnow)
+    last_updated: datetime = field(default_factory=utc_now)
     trend: str = "stable"  # improving, stable, degrading
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -267,10 +269,10 @@ class ThroughputHealthChecker:
         timestamp: Optional[datetime] = None,
     ) -> None:
         key = f"{service_name}:{region_id}"
-        ts = timestamp or datetime.utcnow()
+        ts = timestamp or utc_now()
         self._requests[key].append(ts)
         # Clean old entries
-        cutoff = datetime.utcnow() - timedelta(seconds=self.window_seconds)
+        cutoff = utc_now() - timedelta(seconds=self.window_seconds)
         while self._requests[key] and self._requests[key][0] < cutoff:
             self._requests[key].popleft()
 
@@ -283,7 +285,7 @@ class ThroughputHealthChecker:
         requests = self._requests.get(key, deque())
 
         # Clean old entries
-        cutoff = datetime.utcnow() - timedelta(seconds=self.window_seconds)
+        cutoff = utc_now() - timedelta(seconds=self.window_seconds)
         while requests and requests[0] < cutoff:
             requests.popleft()
 
@@ -449,7 +451,7 @@ class AvailabilityHealthChecker:
         timestamp: Optional[datetime] = None,
     ) -> None:
         key = f"{service_name}:{region_id}"
-        ts = timestamp or datetime.utcnow()
+        ts = timestamp or utc_now()
         self._current_downtime[key] = ts
 
     def record_downtime_end(
@@ -459,7 +461,7 @@ class AvailabilityHealthChecker:
         timestamp: Optional[datetime] = None,
     ) -> None:
         key = f"{service_name}:{region_id}"
-        ts = timestamp or datetime.utcnow()
+        ts = timestamp or utc_now()
         start = self._current_downtime.get(key)
         if start:
             self._downtimes[key].append((start, ts))
@@ -471,7 +473,7 @@ class AvailabilityHealthChecker:
         region_id: str,
     ) -> list[HealthCheckResult]:
         key = f"{service_name}:{region_id}"
-        now = datetime.utcnow()
+        now = utc_now()
         window_start = now - timedelta(hours=self.window_hours)
 
         # Calculate total downtime in window
@@ -771,7 +773,7 @@ class CircuitBreaker:
         elif self._state == CircuitBreakerState.OPEN:
             # Check if timeout elapsed
             if self._last_failure_time:
-                elapsed = (datetime.utcnow() - self._last_failure_time).total_seconds()
+                elapsed = (utc_now() - self._last_failure_time).total_seconds()
                 if elapsed >= self.timeout:
                     return True  # Allow transition to half-open
             return False
@@ -793,7 +795,7 @@ class CircuitBreaker:
     async def record_failure(self) -> None:
         async with self._lock:
             self._failure_count += 1
-            self._last_failure_time = datetime.utcnow()
+            self._last_failure_time = utc_now()
 
             if self._state == CircuitBreakerState.HALF_OPEN:
                 self._state = CircuitBreakerState.OPEN
@@ -811,7 +813,7 @@ class CircuitBreaker:
         elif self._state == CircuitBreakerState.OPEN:
             # Check timeout
             if self._last_failure_time:
-                elapsed = (datetime.utcnow() - self._last_failure_time).total_seconds()
+                elapsed = (utc_now() - self._last_failure_time).total_seconds()
                 if elapsed >= self.timeout:
                     self._state = CircuitBreakerState.HALF_OPEN
                     self._half_open_successes = 0

@@ -15,6 +15,8 @@ from enum import Enum
 from functools import wraps
 from typing import Any, Callable, Optional, TypeVar
 
+from pyfault.common.time import utc_now
+
 T = TypeVar("T")
 
 
@@ -33,7 +35,7 @@ class LatencySample:
     """A single latency sample."""
     operation: str
     latency_ms: float
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     tags: dict[str, str] = field(default_factory=dict)
     success: bool = True
 
@@ -301,7 +303,7 @@ class LatencyBudget:
     def record_violation(self, latency_ms: float) -> bool:
         """Record a budget violation."""
         self._violations += 1
-        self._last_alert = datetime.utcnow()
+        self._last_alert = utc_now()
         return self._violations > 10  # Alert after 10 violations
 
     def get_status(self) -> dict[str, Any]:

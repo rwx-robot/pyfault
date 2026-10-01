@@ -18,6 +18,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -77,8 +79,8 @@ class DataResidencyRule:
     max_retention_days: Optional[int] = None
     allowed_transfer_mechanisms: list[TransferMechanism] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
 
 @dataclass
@@ -95,8 +97,8 @@ class DataAsset:
     encryption_at_rest: bool = False
     encryption_in_transit: bool = False
     tags: dict[str, str] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -127,7 +129,7 @@ class ComplianceViolation:
     framework: ComplianceFramework = ComplianceFramework.CUSTOM
     severity: str = "medium"  # low, medium, high, critical
     description: str = ""
-    detected_at: datetime = field(default_factory=datetime.utcnow)
+    detected_at: datetime = field(default_factory=utc_now)
     resolved_at: Optional[datetime] = None
     resolution: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -160,7 +162,7 @@ class CrossBorderTransfer:
     mechanism: TransferMechanism = TransferMechanism.NONE
     purpose: str = ""
     data_volume_bytes: int = 0
-    initiated_at: datetime = field(default_factory=datetime.utcnow)
+    initiated_at: datetime = field(default_factory=utc_now)
     completed_at: Optional[datetime] = None
     status: str = "pending"  # pending, completed, failed, blocked
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -367,7 +369,7 @@ class ComplianceRuleEngine:
                 self._violations.append(v)
         else:
             transfer.status = "completed"
-            transfer.completed_at = datetime.utcnow()
+            transfer.completed_at = utc_now()
 
         self._transfers.append(transfer)
 
@@ -398,7 +400,7 @@ class ComplianceRuleEngine:
     ) -> bool:
         for v in self._violations:
             if v.violation_id == violation_id:
-                v.resolved_at = datetime.utcnow()
+                v.resolved_at = utc_now()
                 v.resolution = resolution
                 return True
         return False
@@ -724,7 +726,7 @@ class AuditLogger:
             "service_name": service_name,
             "region_id": region_id,
             "user_id": user_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now().isoformat(),
             "details": details or {},
         }
 

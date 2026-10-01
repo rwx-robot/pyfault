@@ -23,6 +23,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,8 +76,8 @@ class DataItem:
     key: str
     value: Any
     version: int = 1
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
     expires_at: Optional[datetime] = None
     tags: dict[str, str] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -87,7 +89,7 @@ class DataItem:
 
     def is_expired(self) -> bool:
         if self.expires_at:
-            return datetime.utcnow() > self.expires_at
+            return utc_now() > self.expires_at
         return False
 
     def compute_checksum(self) -> str:
@@ -180,7 +182,7 @@ class MemoryCache:
 
             # Set expiration
             if not item.expires_at:
-                item.expires_at = datetime.utcnow() + timedelta(seconds=self.default_ttl)
+                item.expires_at = utc_now() + timedelta(seconds=self.default_ttl)
 
             item.checksum = item.compute_checksum()
             self._cache[item.key] = item
@@ -275,7 +277,7 @@ class DiskCache:
             meta = self._index[key]
             if meta.get("expires_at"):
                 expires = datetime.fromisoformat(meta["expires_at"])
-                if datetime.utcnow() > expires:
+                if utc_now() > expires:
                     await self.delete(key)
                     return None
 
@@ -303,7 +305,7 @@ class DiskCache:
                 await self._evict_lru()
 
             if not item.expires_at:
-                item.expires_at = datetime.utcnow() + timedelta(hours=24)
+                item.expires_at = utc_now() + timedelta(hours=24)
 
             item.checksum = item.compute_checksum()
 
@@ -347,7 +349,7 @@ class DiskCache:
             meta = self._index[key]
             if meta.get("expires_at"):
                 expires = datetime.fromisoformat(meta["expires_at"])
-                if datetime.utcnow() > expires:
+                if utc_now() > expires:
                     await self.delete(key)
                     return False
             return True
@@ -423,7 +425,7 @@ class EdgeStorage:
         item = DataItem(
             key=key,
             value=value,
-            expires_at=datetime.utcnow() + timedelta(seconds=ttl or self.config.default_ttl_seconds),
+            expires_at=utc_now() + timedelta(seconds=ttl or self.config.default_ttl_seconds),
             tags=tags or {},
             metadata=metadata or {},
             tier=tier,

@@ -24,6 +24,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
 
+from pyfault.common.time import utc_now
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 logger = logging.getLogger(__name__)
@@ -128,7 +130,7 @@ class AuditEvent:
     """Structured audit event."""
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     event_type: AuditEventType = AuditEventType.CUSTOM
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
 
     # Actor
     actor_id: str = ""  # User ID, service ID, or "system"
@@ -280,7 +282,7 @@ class AuditStore:
         """Flush events to disk in batches."""
         try:
             # Write to daily files
-            today = datetime.utcnow().strftime("%Y-%m-%d")
+            today = utc_now().strftime("%Y-%m-%d")
             file_path = self.base_path / f"audit-{today}.jsonl"
 
             # Get events since last flush (simplified - write all)
@@ -376,7 +378,7 @@ class AuditStore:
             "verified": len(issues) == 0,
             "total_events": len(self._events),
             "issues": issues,
-            "checked_at": datetime.utcnow().isoformat(),
+            "checked_at": utc_now().isoformat(),
         }
 
     async def get_stats(self) -> dict[str, Any]:
@@ -756,7 +758,7 @@ class ComplianceReporter:
                 "critical_alerts": len([e for e in cc7_2 if e.severity == AuditSeverity.CRITICAL]),
                 "security_alerts": len([e for e in cc7_2 if e.event_type == AuditEventType.SECURITY_ALERT]),
             },
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": utc_now().isoformat(),
         }
 
     async def generate_gdpr_report(
@@ -796,7 +798,7 @@ class ComplianceReporter:
             "data_subject_requests": len(data_subject_requests),
             "breaches": len(breaches),
             "breach_details": [e.to_dict() for e in breaches],
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": utc_now().isoformat(),
         }
 
     async def generate_hipaa_report(
@@ -847,7 +849,7 @@ class ComplianceReporter:
             "transmission_security": {
                 "data_exports": len(transmission),
             },
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": utc_now().isoformat(),
         }
 
 

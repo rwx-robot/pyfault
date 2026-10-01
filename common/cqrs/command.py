@@ -12,6 +12,7 @@ from typing import Any, Callable, Generic, Optional, TypeVar
 from pyfault.common.cqrs.core import CommandMiddleware
 from pyfault.common.cqrs.middleware import MiddlewareChain
 from pyfault.common.eventsourcing.events import Event
+from pyfault.common.time import utc_now
 
 
 class CommandStatus(str, Enum):
@@ -38,7 +39,7 @@ class Command:
     aggregate_id: Optional[str] = None
     correlation_id: Optional[str] = None
     causation_id: Optional[str] = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __init__(
@@ -55,7 +56,7 @@ class Command:
         self.aggregate_id = aggregate_id
         self.correlation_id = correlation_id
         self.causation_id = causation_id or self.command_id
-        self.timestamp = timestamp or datetime.utcnow()
+        self.timestamp = timestamp or utc_now()
         self.metadata = metadata or {}
         # Apply subclass fields passed as keyword arguments
         for key, value in kwargs.items():
@@ -86,7 +87,7 @@ class Command:
             aggregate_id=data.get("aggregate_id"),
             correlation_id=data.get("correlation_id"),
             causation_id=data.get("causation_id"),
-            timestamp=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else datetime.utcnow(),
+            timestamp=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else utc_now(),
             metadata=data.get("metadata", {}),
         )
 

@@ -10,6 +10,7 @@ from enum import Enum
 from typing import Any, Callable, Generic, Optional, TypeVar
 
 from pyfault.common.cqrs.core import MiddlewareChain, QueryMiddleware
+from pyfault.common.time import utc_now
 
 
 class QueryStatus(str, Enum):
@@ -34,7 +35,7 @@ class Query:
     """
     query_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     correlation_id: Optional[str] = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __init__(
@@ -47,7 +48,7 @@ class Query:
     ) -> None:
         self.query_id = query_id or str(uuid.uuid4())
         self.correlation_id = correlation_id
-        self.timestamp = timestamp or datetime.utcnow()
+        self.timestamp = timestamp or utc_now()
         self.metadata = metadata or {}
         # Apply subclass fields passed as keyword arguments
         for key, value in kwargs.items():
@@ -70,7 +71,7 @@ class Query:
         return cls(
             query_id=data.get("query_id", str(uuid.uuid4())),
             correlation_id=data.get("correlation_id"),
-            timestamp=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else datetime.utcnow(),
+            timestamp=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else utc_now(),
             metadata=data.get("metadata", {}),
         )
 

@@ -23,6 +23,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -163,8 +165,8 @@ class ModelVersion:
     traffic_percentage: float = 0.0
 
     # Timestamps
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
     promoted_at: Optional[datetime] = None
     deprecated_at: Optional[datetime] = None
 
@@ -302,7 +304,7 @@ class PromotionRequest:
     status: PromotionStatus = PromotionStatus.PENDING
     approvers: list[str] = field(default_factory=list)
     required_approvals: int = 1
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
     approved_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -474,8 +476,8 @@ class VersionRegistry:
             return False
 
         version.stage = new_stage
-        version.updated_at = datetime.utcnow()
-        version.promoted_at = datetime.utcnow()
+        version.updated_at = utc_now()
+        version.promoted_at = utc_now()
 
         self._stage_index[old_stage].discard(version_id)
         self._stage_index[new_stage].add(version_id)
@@ -531,7 +533,7 @@ class DeploymentManager:
             return False
 
         deployment.status = "running"
-        deployment.started_at = datetime.utcnow()
+        deployment.started_at = utc_now()
 
         # Start deployment based on strategy
         if deployment.config.strategy == DeploymentStrategy.CANARY:
@@ -601,7 +603,7 @@ class DeploymentManager:
                 return
 
             deployment.status = "completed"
-            deployment.completed_at = datetime.utcnow()
+            deployment.completed_at = utc_now()
 
         except Exception as e:
             deployment.status = "failed"
@@ -645,13 +647,13 @@ class DeploymentManager:
         # This would integrate with load balancer/router
         deployment.current_traffic = 100
         deployment.status = "completed"
-        deployment.completed_at = datetime.utcnow()
+        deployment.completed_at = utc_now()
 
     async def _run_rolling(self, deployment: Deployment) -> None:
         """Run rolling deployment."""
         # Rolling update with max_surge/max_unavailable
         deployment.status = "completed"
-        deployment.completed_at = datetime.utcnow()
+        deployment.completed_at = utc_now()
 
     async def _rollback(self, deployment: Deployment, reason: str) -> None:
         """Rollback deployment."""
@@ -659,7 +661,7 @@ class DeploymentManager:
 
         deployment.status = "rolled_back"
         deployment.error = reason
-        deployment.completed_at = datetime.utcnow()
+        deployment.completed_at = utc_now()
 
         # Restore previous version traffic
         config = deployment.config
@@ -746,7 +748,7 @@ class PromotionManager:
 
         if len(request.approvers) >= request.required_approvals:
             request.status = PromotionStatus.APPROVED
-            request.approved_at = datetime.utcnow()
+            request.approved_at = utc_now()
 
         return True
 
@@ -772,7 +774,7 @@ class PromotionManager:
 
                 if success:
                     request.status = PromotionStatus.COMPLETED
-                    request.completed_at = datetime.utcnow()
+                    request.completed_at = utc_now()
                     processed.append(request.request_id)
                 else:
                     request.status = PromotionStatus.FAILED
@@ -835,7 +837,7 @@ class RollbackManager:
 
         # Record rollback
         self._rollback_history.append({
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now().isoformat(),
             "name": name,
             "from_version": current.version_id if current else None,
             "to_version": target_version_id,

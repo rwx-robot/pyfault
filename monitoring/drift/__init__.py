@@ -29,6 +29,8 @@ from scipy.stats import wasserstein_distance
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
+from pyfault.common.time import utc_now
+
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 logger = logging.getLogger(__name__)
@@ -70,7 +72,7 @@ class DriftMetric:
     severity: DriftSeverity
     p_value: Optional[float] = None
     details: dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -97,7 +99,7 @@ class DriftReport:
     current_period: tuple[datetime, datetime]
     sample_sizes: dict[str, int]
     recommendations: list[str] = field(default_factory=list)
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -668,8 +670,8 @@ class DriftDetectorOrchestrator:
             drift_type=DriftType.DATA_DRIFT,
             overall_severity=overall,
             metrics=all_metrics,
-            reference_period=(datetime.utcnow() - timedelta(days=7), datetime.utcnow()),
-            current_period=(datetime.utcnow() - timedelta(hours=1), datetime.utcnow()),
+            reference_period=(utc_now() - timedelta(days=7), utc_now()),
+            current_period=(utc_now() - timedelta(hours=1), utc_now()),
             sample_sizes={
                 "reference": len(reference),
                 "current": len(current),

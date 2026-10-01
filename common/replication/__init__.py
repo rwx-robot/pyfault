@@ -15,6 +15,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Generic, Optional, TypeVar
 
+from pyfault.common.time import utc_now
+
 
 class ReplicationMode(str, Enum):
     """Replication mode."""
@@ -59,7 +61,7 @@ class ReplicationEvent:
     operation: str = ""  # create, update, delete
     payload: dict[str, Any] = field(default_factory=dict)
     version: int = 1
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     checksum: str = ""
 
     def compute_checksum(self) -> str:

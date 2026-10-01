@@ -19,6 +19,8 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Optional
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -82,8 +84,8 @@ class EdgeNode:
     labels: dict[str, str] = field(default_factory=dict)
     cost_per_hour: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
-    last_heartbeat: datetime = field(default_factory=datetime.utcnow)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    last_heartbeat: datetime = field(default_factory=utc_now)
+    created_at: datetime = field(default_factory=utc_now)
 
     def available_capacity(self, resource: str) -> float:
         return self.capacity.get(resource, 0) - self.used.get(resource, 0)
@@ -144,7 +146,7 @@ class SchedulingRequest:
     compliance_frameworks: list[str] = field(default_factory=list)
     max_latency_ms: Optional[float] = None
     priority: int = 0
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     trace_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     client_location: Optional[GeoLocation] = None
 
@@ -160,7 +162,7 @@ class SchedulingDecision:
     latency_estimate_ms: float = 0.0
     alternatives: list[tuple[str, float]] = field(default_factory=list)
     reasoning: str = ""
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -216,13 +218,13 @@ class NodeRegistry:
 
     def update_heartbeat(self, node_id: str) -> bool:
         if node_id in self._nodes:
-            self._nodes[node_id].last_heartbeat = datetime.utcnow()
+            self._nodes[node_id].last_heartbeat = utc_now()
             return True
         return False
 
     def check_node_health(self, timeout_seconds: int = 60) -> list[str]:
         """Check for stale nodes."""
-        cutoff = datetime.utcnow() - timedelta(seconds=timeout_seconds)
+        cutoff = utc_now() - timedelta(seconds=timeout_seconds)
         stale = []
         for node in self._nodes.values():
             if node.last_heartbeat < cutoff and node.status != EdgeNodeStatus.OFFLINE:

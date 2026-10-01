@@ -10,6 +10,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional, TypeVar
 
+from pyfault.common.time import utc_now
+
 
 class EventType(str, Enum):
     """Standard event types."""
@@ -25,7 +27,7 @@ class EventMetadata:
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     correlation_id: Optional[str] = None
     causation_id: Optional[str] = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     user_id: Optional[str] = None
     session_id: Optional[str] = None
     tags: dict[str, str] = field(default_factory=dict)
@@ -51,7 +53,7 @@ class EventMetadata:
             event_id=data.get("event_id", str(uuid.uuid4())),
             correlation_id=data.get("correlation_id"),
             causation_id=data.get("causation_id"),
-            timestamp=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else datetime.utcnow(),
+            timestamp=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else utc_now(),
             user_id=data.get("user_id"),
             session_id=data.get("session_id"),
             tags=data.get("tags", {}),

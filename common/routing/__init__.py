@@ -19,6 +19,7 @@ from pyfault.common.region import (
     RegionStatus,
     get_region_manager,
 )
+from pyfault.common.time import utc_now
 
 T = TypeVar("T")
 
@@ -150,7 +151,7 @@ class LatencyBasedRoutingStrategy(RoutingStrategyBase):
         if (
             cache_key in self._latency_cache
             and cache_key in self._cache_expiry
-            and self._cache_expiry[cache_key] > datetime.utcnow()
+            and self._cache_expiry[cache_key] > utc_now()
         ):
             return self._latency_cache[cache_key]
 
@@ -159,7 +160,7 @@ class LatencyBasedRoutingStrategy(RoutingStrategyBase):
         # Expire at the start of the next minute. The previous code stored
         # the start of the *current* minute, which is always in the past,
         # so the cache never produced a hit.
-        self._cache_expiry[cache_key] = datetime.utcnow().replace(
+        self._cache_expiry[cache_key] = utc_now().replace(
             second=0, microsecond=0
         ) + timedelta(minutes=1)
         return latency

@@ -22,6 +22,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -90,8 +92,8 @@ class DNSRecord:
     weight: int = 100
     health_check: str = ""
     enabled: bool = True
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
 
 @dataclass
@@ -138,7 +140,7 @@ class TLSConfig:
     hsts_enabled: bool = True
     hsts_max_age: int = 31536000
     ocsp_stapling: bool = True
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
     expires_at: Optional[datetime] = None
 
 
@@ -248,7 +250,7 @@ class LoadBalancer:
         backend = self._backends.get(endpoint_id)
         if backend:
             backend.healthy = healthy
-            backend.last_health_check = datetime.utcnow()
+            backend.last_health_check = utc_now()
             if latency_ms > 0:
                 # Exponential moving average
                 alpha = 0.3

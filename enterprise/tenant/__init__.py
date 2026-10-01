@@ -21,6 +21,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
 
+from pyfault.common.time import utc_now
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 logger = logging.getLogger(__name__)
@@ -78,7 +80,7 @@ class ResourceQuota:
     unit: str = ""
 
     # Period
-    period_start: datetime = field(default_factory=datetime.utcnow)
+    period_start: datetime = field(default_factory=utc_now)
     period_end: Optional[datetime] = None
     reset_frequency: str = "monthly"  # daily, weekly, monthly, never
 
@@ -92,8 +94,8 @@ class ResourceQuota:
     auto_scale: bool = False  # Auto-request increase
 
     # Metadata
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
     @property
     def utilization(self) -> float:
@@ -170,8 +172,8 @@ class Tenant:
     payment_method_id: str = ""
 
     # Timestamps
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
     activated_at: Optional[datetime] = None
     suspended_at: Optional[datetime] = None
     deleted_at: Optional[datetime] = None
@@ -185,7 +187,7 @@ class Tenant:
         return self.status == TenantStatus.ACTIVE
 
     def is_trial(self) -> bool:
-        return bool(self.trial_ends_at and datetime.utcnow() < self.trial_ends_at)
+        return bool(self.trial_ends_at and utc_now() < self.trial_ends_at)
 
     def get_quota(self, quota_type: ResourceQuotaType) -> Optional[ResourceQuota]:
         return self.quotas.get(quota_type.value)
@@ -217,7 +219,7 @@ class Tenant:
             return False
 
         quota.used += amount
-        quota.updated_at = datetime.utcnow()
+        quota.updated_at = utc_now()
         return True
 
     def release_quota(self, quota_type: ResourceQuotaType, amount: float = 1.0) -> bool:
@@ -226,7 +228,7 @@ class Tenant:
             return True
 
         quota.used = max(0, quota.used - amount)
-        quota.updated_at = datetime.utcnow()
+        quota.updated_at = utc_now()
         return True
 
     def to_dict(self, include_quotas: bool = True) -> dict[str, Any]:
@@ -271,14 +273,14 @@ class TenantInvitation:
     role: str = "member"  # admin, member, viewer
     invited_by: str = ""
     token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
-    expires_at: datetime = field(default_factory=lambda: datetime.utcnow() + timedelta(days=7))
+    expires_at: datetime = field(default_factory=lambda: utc_now() + timedelta(days=7))
     accepted_at: Optional[datetime] = None
     accepted_by: str = ""
     status: str = "pending"  # pending, accepted, expired, revoked
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
 
     def is_valid(self) -> bool:
-        return self.status == "pending" and datetime.utcnow() < self.expires_at
+        return self.status == "pending" and utc_now() < self.expires_at
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -369,7 +371,7 @@ class TenantManager:
 
         # Set trial
         if trial_days > 0:
-            tenant.trial_ends_at = datetime.utcnow() + timedelta(days=trial_days)
+            tenant.trial_ends_at = utc_now() + timedelta(days=trial_days)
 
         # Register
         self._tenants[tenant.tenant_id] = tenant
@@ -424,7 +426,7 @@ class TenantManager:
             self._configure_dns_sync(tenant)
 
             tenant.status = TenantStatus.ACTIVE
-            tenant.activated_at = datetime.utcnow()
+            tenant.activated_at = utc_now()
             logger.info(f"Tenant {tenant.name} provisioned successfully")
         except Exception as e:
             tenant.status = TenantStatus.ERROR
@@ -485,7 +487,7 @@ class TenantManager:
             if hasattr(tenant, key) and key not in ["tenant_id", "owner_id", "created_at"]:
                 setattr(tenant, key, value)
 
-        tenant.updated_at = datetime.utcnow()
+        tenant.updated_at = utc_now()
 
         # Handle domain/subdomain changes (reindex using pre-update values)
         if "domain" in updates:
@@ -508,9 +510,9 @@ class TenantManager:
             return False
 
         tenant.status = TenantStatus.SUSPENDED
-        tenant.suspended_at = datetime.utcnow()
+        tenant.suspended_at = utc_now()
         tenant.metadata["suspension_reason"] = reason
-        tenant.updated_at = datetime.utcnow()
+        tenant.updated_at = utc_now()
         return True
 
     def activate_tenant(self, tenant_id: str) -> bool:
@@ -521,7 +523,7 @@ class TenantManager:
         if tenant.status == TenantStatus.SUSPENDED:
             tenant.status = TenantStatus.ACTIVE
             tenant.suspended_at = None
-            tenant.updated_at = datetime.utcnow()
+            tenant.updated_at = utc_now()
             return True
         return False
 
@@ -534,8 +536,8 @@ class TenantManager:
             return False
 
         tenant.status = TenantStatus.DELETED
-        tenant.deleted_at = datetime.utcnow()
-        tenant.updated_at = datetime.utcnow()
+        tenant.deleted_at = utc_now()
+        tenant.updated_at = utc_now()
 
         # Clean up indexes
         if tenant.domain in self._tenant_by_domain:
@@ -589,7 +591,7 @@ class TenantManager:
             return False
 
         invitation.status = "accepted"
-        invitation.accepted_at = datetime.utcnow()
+        invitation.accepted_at = utc_now()
         invitation.accepted_by = user_id
 
         # Add user to tenant
@@ -603,7 +605,7 @@ class TenantManager:
             return False
 
         tenant.plan = new_plan
-        tenant.updated_at = datetime.utcnow()
+        tenant.updated_at = utc_now()
 
         # Apply new quotas
         self._apply_plan_quotas(tenant)
@@ -623,7 +625,7 @@ class TenantManager:
             },
             "is_trial": tenant.is_trial(),
             "trial_days_remaining": (
-                (tenant.trial_ends_at - datetime.utcnow()).days
+                (tenant.trial_ends_at - utc_now()).days
                 if tenant.trial_ends_at else None
             ),
         }
@@ -701,7 +703,7 @@ class TenantAwareService:
         if not self.tenant_context.tenant:
             return False
         self.tenant_context.tenant.settings[key] = value
-        self.tenant_context.tenant.updated_at = datetime.utcnow()
+        self.tenant_context.tenant.updated_at = utc_now()
         return True
 
     def is_feature_enabled(self, feature: str) -> bool:

@@ -14,6 +14,8 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Callable, Generic, Optional, TypeVar
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,7 +67,7 @@ class FailoverEvent:
     trigger: FailoverTrigger = FailoverTrigger.MANUAL
     from_region: str = ""
     to_region: str = ""
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     duration_ms: Optional[int] = None
     success: bool = False
     error_message: Optional[str] = None
@@ -123,7 +125,7 @@ class HTTPHealthChecker(HealthChecker):
                     return HealthCheckResult(
                         service_name=service_name,
                         region=region,
-                        timestamp=datetime.utcnow(),
+                        timestamp=utc_now(),
                         healthy=True,
                         latency_ms=latency_ms,
                         error_rate=0.0,
@@ -133,7 +135,7 @@ class HTTPHealthChecker(HealthChecker):
                     return HealthCheckResult(
                         service_name=service_name,
                         region=region,
-                        timestamp=datetime.utcnow(),
+                        timestamp=utc_now(),
                         healthy=False,
                         latency_ms=latency_ms,
                         error_rate=1.0,
@@ -144,7 +146,7 @@ class HTTPHealthChecker(HealthChecker):
             return HealthCheckResult(
                 service_name=service_name,
                 region=region,
-                timestamp=datetime.utcnow(),
+                timestamp=utc_now(),
                 healthy=False,
                 latency_ms=self.timeout_ms,
                 error_rate=1.0,
@@ -155,7 +157,7 @@ class HTTPHealthChecker(HealthChecker):
             return HealthCheckResult(
                 service_name=service_name,
                 region=region,
-                timestamp=datetime.utcnow(),
+                timestamp=utc_now(),
                 healthy=False,
                 latency_ms=(time.time() - start) * 1000,
                 error_rate=1.0,
@@ -399,7 +401,7 @@ class FailoverManager:
                 health_results[region] = HealthCheckResult(
                     service_name=self.config.service_name,
                     region=region,
-                    timestamp=datetime.utcnow(),
+                    timestamp=utc_now(),
                     healthy=False,
                     latency_ms=0,
                     error_rate=1.0,
@@ -450,7 +452,7 @@ class FailoverManager:
             trigger=trigger,
             from_region=self._current_region,
             to_region=target_region,
-            timestamp=datetime.utcnow(),
+            timestamp=utc_now(),
         )
 
         try:
@@ -468,7 +470,7 @@ class FailoverManager:
             self._current_region = target_region
             self._state = FailoverStatus.FAILOVER_COMPLETED
             self._failure_count = 0
-            self._last_failover_time = datetime.utcnow()
+            self._last_failover_time = utc_now()
 
             event.success = True
             event.duration_ms = int((time.time() - start_time) * 1000)
@@ -501,7 +503,7 @@ class FailoverManager:
             trigger=FailoverTrigger.MANUAL,
             from_region=self._current_region,
             to_region=self.config.primary_region,
-            timestamp=datetime.utcnow(),
+            timestamp=utc_now(),
         )
 
         try:
@@ -581,7 +583,7 @@ class FailoverManager:
         health_results = {self.config.primary_region: HealthCheckResult(
             service_name=self.config.service_name,
             region=self.config.primary_region,
-            timestamp=datetime.utcnow(),
+            timestamp=utc_now(),
             healthy=False,
             latency_ms=9999,
             error_rate=1.0,
@@ -600,7 +602,7 @@ class FailoverManager:
             self.config.primary_region: HealthCheckResult(
                 service_name=self.config.service_name,
                 region=self.config.primary_region,
-                timestamp=datetime.utcnow(),
+                timestamp=utc_now(),
                 healthy=True,
                 latency_ms=100,
                 error_rate=0.0,

@@ -25,6 +25,8 @@ from typing import Any, Callable, Optional, Union
 
 import yaml
 
+from pyfault.common.time import utc_now
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 logger = logging.getLogger(__name__)
@@ -173,8 +175,8 @@ class ADR:
     alternatives: list[str] = field(default_factory=list)
     related_adrs: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
     author: str = ""
 
     def to_markdown(self) -> str:
@@ -972,7 +974,7 @@ class ADRManager:
     def update_adr_status(self, adr_id: str, status: str) -> bool:
         if adr_id in self._adrs:
             self._adrs[adr_id].status = status
-            self._adrs[adr_id].updated_at = datetime.utcnow()
+            self._adrs[adr_id].updated_at = utc_now()
             self._save_adr(self._adrs[adr_id])
             return True
         return False
@@ -1021,7 +1023,7 @@ class ChangelogGenerator:
     ) -> ChangelogEntry:
         entry = ChangelogEntry(
             version=version,
-            date=date or datetime.utcnow(),
+            date=date or utc_now(),
             changes=changes or {},
             breaking_changes=breaking_changes or [],
             deprecated=deprecated or [],
@@ -1036,7 +1038,7 @@ class ChangelogGenerator:
         # Find or create entry
         entry = next((e for e in self._entries if e.version == version), None)
         if not entry:
-            entry = ChangelogEntry(version=version, date=datetime.utcnow())
+            entry = ChangelogEntry(version=version, date=utc_now())
             self._entries.insert(0, entry)
 
         if category not in entry.changes:

@@ -16,6 +16,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Optional
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,8 +54,8 @@ class ServiceEndpoint:
     weight: int = 100
     priority: int = 0
     tags: dict[str, str] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
     last_health_check: Optional[datetime] = None
     health_check_interval: int = 30  # seconds
 
@@ -229,7 +231,7 @@ class RegionAwareDiscovery:
         # Check cache
         if cache_key in self._cache:
             cached_time = self._cache_timestamps.get(cache_key)
-            if cached_time and (datetime.utcnow() - cached_time).total_seconds() < self._cache_ttl:
+            if cached_time and (utc_now() - cached_time).total_seconds() < self._cache_ttl:
                 return self._cache[cache_key]
 
         instances = self.registry.get_all_instances(service_name)
@@ -252,7 +254,7 @@ class RegionAwareDiscovery:
 
         # Cache results
         self._cache[cache_key] = instances
-        self._cache_timestamps[cache_key] = datetime.utcnow()
+        self._cache_timestamps[cache_key] = utc_now()
 
         return instances
 

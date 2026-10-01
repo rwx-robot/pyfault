@@ -26,6 +26,8 @@ from typing import Any, Callable, Optional
 import numpy as np
 from scipy import stats
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -130,8 +132,8 @@ class Experiment:
     results: dict[str, Any] = field(default_factory=dict)
 
     # Metadata
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
     created_by: str = ""
     tags: list[str] = field(default_factory=list)
 
@@ -150,7 +152,7 @@ class Experiment:
     def is_active(self) -> bool:
         if self.status != ExperimentStatus.RUNNING:
             return False
-        now = datetime.utcnow()
+        now = utc_now()
         if self.start_time and now < self.start_time:
             return False
         if self.end_time and now > self.end_time:
@@ -167,7 +169,7 @@ class ExperimentAssignment:
     assignment_key: str = ""
     assignment_value: str = ""
     context: dict[str, Any] = field(default_factory=dict)
-    assigned_at: datetime = field(default_factory=datetime.utcnow)
+    assigned_at: datetime = field(default_factory=utc_now)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -182,7 +184,7 @@ class ExperimentEvent:
     value: float = 0.0
     numerator: float = 0.0
     denominator: float = 1.0
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     context: dict[str, Any] = field(default_factory=dict)
 
 
@@ -636,7 +638,7 @@ class ExperimentManager:
             if hasattr(experiment, key):
                 setattr(experiment, key, value)
 
-        experiment.updated_at = datetime.utcnow()
+        experiment.updated_at = utc_now()
         return True
 
     def delete_experiment(self, experiment_id: str) -> bool:
@@ -651,8 +653,8 @@ class ExperimentManager:
 
         experiment = self._experiments[experiment_id]
         experiment.status = ExperimentStatus.RUNNING
-        experiment.start_time = experiment.start_time or datetime.utcnow()
-        experiment.updated_at = datetime.utcnow()
+        experiment.start_time = experiment.start_time or utc_now()
+        experiment.updated_at = utc_now()
         logger.info(f"Started experiment: {experiment.name}")
         return True
 
@@ -662,9 +664,9 @@ class ExperimentManager:
 
         experiment = self._experiments[experiment_id]
         experiment.status = ExperimentStatus.STOPPED
-        experiment.end_time = datetime.utcnow()
+        experiment.end_time = utc_now()
         experiment.results["stop_reason"] = reason
-        experiment.updated_at = datetime.utcnow()
+        experiment.updated_at = utc_now()
         logger.info(f"Stopped experiment: {experiment.name} - {reason}")
         return True
 
@@ -674,7 +676,7 @@ class ExperimentManager:
 
         experiment = self._experiments[experiment_id]
         experiment.status = ExperimentStatus.PAUSED
-        experiment.updated_at = datetime.utcnow()
+        experiment.updated_at = utc_now()
         return True
 
     def resume_experiment(self, experiment_id: str) -> bool:
@@ -683,7 +685,7 @@ class ExperimentManager:
 
         experiment = self._experiments[experiment_id]
         experiment.status = ExperimentStatus.RUNNING
-        experiment.updated_at = datetime.utcnow()
+        experiment.updated_at = utc_now()
         return True
 
     def assign_user(

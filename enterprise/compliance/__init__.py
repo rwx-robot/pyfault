@@ -22,6 +22,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
 
+from pyfault.common.time import utc_now
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 logger = logging.getLogger(__name__)
@@ -109,8 +111,8 @@ class FrameworkControl:
     evidence_required: list[EvidenceType] = field(default_factory=list)
 
     # Metadata
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -162,14 +164,14 @@ class ControlImplementation:
 
     # Timestamps
     implemented_at: Optional[datetime] = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
     def is_compliant(self) -> bool:
         return self.status in [ControlStatus.COMPLIANT, ControlStatus.TESTED]
 
     def is_overdue(self) -> bool:
-        return bool(self.next_test_due and datetime.utcnow() > self.next_test_due)
+        return bool(self.next_test_due and utc_now() > self.next_test_due)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -206,8 +208,8 @@ class Evidence:
 
     # Metadata
     collected_by: str = ""
-    collected_at: datetime = field(default_factory=datetime.utcnow)
-    valid_from: datetime = field(default_factory=datetime.utcnow)
+    collected_at: datetime = field(default_factory=utc_now)
+    valid_from: datetime = field(default_factory=utc_now)
     valid_until: Optional[datetime] = None
 
     # Verification
@@ -257,7 +259,7 @@ class TestResult:
     evidence: list[str] = field(default_factory=list)  # Evidence IDs
 
     # Timing
-    started_at: datetime = field(default_factory=datetime.utcnow)
+    started_at: datetime = field(default_factory=utc_now)
     completed_at: Optional[datetime] = None
     duration_minutes: int = 0
 
@@ -312,15 +314,15 @@ class Policy:
 
     # Metadata
     tags: list[str] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
     def is_active(self) -> bool:
         if self.status != PolicyStatus.ACTIVE:
             return False
-        if self.effective_date and datetime.utcnow() < self.effective_date:
+        if self.effective_date and utc_now() < self.effective_date:
             return False
-        return not (self.expiry_date and datetime.utcnow() > self.expiry_date)
+        return not (self.expiry_date and utc_now() > self.expiry_date)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -375,7 +377,7 @@ class Risk:
     treatment: str = "mitigate"  # mitigate, accept, transfer, avoid
 
     # Timestamps
-    identified_at: datetime = field(default_factory=datetime.utcnow)
+    identified_at: datetime = field(default_factory=utc_now)
     reviewed_at: Optional[datetime] = None
     next_review: Optional[datetime] = None
 
@@ -440,7 +442,7 @@ class ComplianceAssessment:
     recommendations: list[str] = field(default_factory=list)
 
     # Timestamps
-    started_at: datetime = field(default_factory=datetime.utcnow)
+    started_at: datetime = field(default_factory=utc_now)
     completed_at: Optional[datetime] = None
     assessor: str = ""
 
@@ -800,10 +802,10 @@ class ComplianceManager:
         impl.implementation_details = details or impl.implementation_details
         if owner:
             impl.owner = owner
-        impl.updated_at = datetime.utcnow()
+        impl.updated_at = utc_now()
 
         if status in [ControlStatus.IMPLEMENTED, ControlStatus.COMPLIANT]:
-            impl.implemented_at = datetime.utcnow()
+            impl.implemented_at = utc_now()
 
         return True
 
@@ -826,7 +828,7 @@ class ComplianceManager:
             return False
         evidence.verified = True
         evidence.verified_by = verified_by
-        evidence.verified_at = datetime.utcnow()
+        evidence.verified_at = utc_now()
         return True
 
     def record_test_result(self, test_result: TestResult) -> None:
@@ -836,10 +838,10 @@ class ComplianceManager:
         impl = self._implementations.get(test_result.implementation_id)
         if impl:
             impl.test_results.append(test_result)
-            impl.last_tested = test_result.completed_at or datetime.utcnow()
+            impl.last_tested = test_result.completed_at or utc_now()
             # Set next test due based on control frequency
             # Would need control reference for frequency
-            impl.next_test_due = datetime.utcnow() + timedelta(days=365)
+            impl.next_test_due = utc_now() + timedelta(days=365)
 
     def get_test_results(self, implementation_id: str) -> list[TestResult]:
         return [t for t in self._test_results.values() if t.implementation_id == implementation_id]
@@ -954,8 +956,8 @@ class ComplianceManager:
 
         assessment.total_controls = len(assessment.controls_assessed)
         assessment.calculate_scores()
-        assessment.completed_at = datetime.utcnow()
-        assessment.next_assessment_due = datetime.utcnow() + timedelta(days=365)
+        assessment.completed_at = utc_now()
+        assessment.next_assessment_due = utc_now() + timedelta(days=365)
 
         return assessment
 
@@ -1057,13 +1059,13 @@ class ComplianceDashboard:
         }
 
     def get_upcoming_tests(self, days: int = 30) -> dict[str, list[dict[str, Any]]]:
-        due_date = datetime.utcnow() + timedelta(days=days)
+        due_date = utc_now() + timedelta(days=days)
         overdue = []
         upcoming = []
 
         for impl in self.manager._implementations.values():
             if impl.next_test_due:
-                if impl.next_test_due < datetime.utcnow():
+                if impl.next_test_due < utc_now():
                     overdue.append({
                         "implementation_id": impl.implementation_id,
                         "control_id": impl.control_id,
@@ -1123,7 +1125,7 @@ class AutomatedComplianceChecker:
                         passed=passed,
                         score=100 if passed else 0,
                         findings=[message] if not passed else [],
-                        completed_at=datetime.utcnow(),
+                        completed_at=utc_now(),
                     )
 
                     self.manager.record_test_result(result)

@@ -30,6 +30,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional, TypeVar
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -125,8 +127,8 @@ class FunctionConfig:
     vpc_config: dict[str, Any] = field(default_factory=dict)
     layers: list[str] = field(default_factory=list)
     tags: dict[str, str] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
     def compute_hash(self) -> str:
         content = f"{self.code}:{self.handler}:{self.runtime.value}"
@@ -143,7 +145,7 @@ class InvocationRequest:
     query_params: dict[str, str] = field(default_factory=dict)
     path_params: dict[str, str] = field(default_factory=dict)
     context: dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     trace_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     parent_span_id: Optional[str] = None
 
@@ -159,7 +161,7 @@ class InvocationResponse:
     error: Optional[str] = None
     duration_ms: float = 0.0
     cold_start: bool = False
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     trace_id: str = ""
     span_id: str = ""
 
@@ -391,7 +393,7 @@ class EdgeRuntime:
             return await self.update_function(config)
 
         config.code_hash = config.compute_hash()
-        config.updated_at = datetime.utcnow()
+        config.updated_at = utc_now()
 
         # Create executor
         executor = self._create_executor(config.runtime)
@@ -428,7 +430,7 @@ class EdgeRuntime:
         old_config = self._functions[config.function_id]
         if config.code_hash == old_config.code_hash:
             # Only config changed, update in place
-            config.updated_at = datetime.utcnow()
+            config.updated_at = utc_now()
             self._functions[config.function_id] = config
             return True
 
@@ -510,7 +512,7 @@ class EdgeRuntime:
     def _update_metrics(self, function_id: str, response: InvocationResponse) -> None:
         metrics = self._metrics[function_id]
         metrics.invocations += 1
-        metrics.last_invocation = datetime.utcnow()
+        metrics.last_invocation = utc_now()
 
         if response.error:
             metrics.errors += 1

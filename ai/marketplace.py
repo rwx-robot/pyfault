@@ -14,6 +14,8 @@ from typing import Any, Optional, TypeVar
 
 import aiofiles
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -61,8 +63,8 @@ class PluginManifest:
     permissions: list[str] = field(default_factory=list)
     entry_point: str = "main"
     config_schema: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -225,7 +227,7 @@ class PluginRegistry:
 
         # Create new package
         new_manifest = manifest
-        new_manifest.updated_at = datetime.utcnow()
+        new_manifest.updated_at = utc_now()
         new_pkg = PluginPackage(
             manifest=new_manifest,
             code=code,
@@ -237,7 +239,7 @@ class PluginRegistry:
             review_count=old_pkg.review_count,
             reviews=old_pkg.reviews,
             installed_at=old_pkg.installed_at,
-            last_updated=datetime.utcnow(),
+            last_updated=utc_now(),
         )
 
         self._packages[plugin_id] = new_pkg
@@ -327,7 +329,7 @@ class PluginRegistry:
             "user_id": user_id,
             "rating": rating,
             "comment": comment,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now().isoformat(),
         }
         pkg.reviews.append(review)
         pkg.review_count = len(pkg.reviews)
@@ -376,7 +378,7 @@ class PluginInstaller:
             async with aiofiles.open(plugin_dir / "config.json", 'w') as f:
                 await f.write(json.dumps(config, indent=2))
 
-        pkg.installed_at = datetime.utcnow()
+        pkg.installed_at = utc_now()
         pkg.status = PluginStatus.APPROVED
         self._installed[pkg.manifest.plugin_id] = pkg
 

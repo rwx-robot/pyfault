@@ -16,6 +16,8 @@ from typing import Any, Optional, TypeVar
 
 import aiofiles
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -55,8 +57,8 @@ class ModelMetadata:
     output_schema: dict[str, Any] = field(default_factory=dict)
     description: str = ""
     tags: list[str] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
     size_bytes: int = 0
     checksum: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -69,7 +71,7 @@ class InferenceRequest:
     inputs: dict[str, Any]
     request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     parameters: dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     priority: int = 0
     timeout_ms: int = 30000
 
@@ -83,7 +85,7 @@ class InferenceResult:
     latency_ms: float
     success: bool
     error_message: Optional[str] = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -167,8 +169,8 @@ class ModelRegistry:
 
         metadata.checksum = checksum
         metadata.size_bytes = len(content)
-        metadata.created_at = datetime.utcnow()
-        metadata.updated_at = datetime.utcnow()
+        metadata.created_at = utc_now()
+        metadata.updated_at = utc_now()
 
         self._metadata[metadata.model_id] = metadata
         await self._save_index()
@@ -187,7 +189,7 @@ class ModelRegistry:
 
         metadata = self._metadata[model_id]
         metadata.version = version or metadata.version
-        metadata.updated_at = datetime.utcnow()
+        metadata.updated_at = utc_now()
 
         with open(path, 'rb') as f:
             content = f.read()
@@ -263,7 +265,7 @@ class ModelInstance:
             success = await self.backend.load(self.metadata.model_id, self.metadata)
             if success:
                 self._loaded = True
-                self._load_time = datetime.utcnow()
+                self._load_time = utc_now()
                 await self.warmup()
                 return True
             return False

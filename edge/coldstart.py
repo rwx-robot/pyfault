@@ -22,6 +22,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Optional, cast
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -58,7 +60,7 @@ class ColdStartMetrics:
     init_phase_ms: float = 0.0
     import_phase_ms: float = 0.0
     handler_phase_ms: float = 0.0
-    last_updated: datetime = field(default_factory=datetime.utcnow)
+    last_updated: datetime = field(default_factory=utc_now)
 
     @property
     def cold_start_rate(self) -> float:
@@ -107,7 +109,7 @@ class FunctionSnapshot:
     code_hash: str
     runtime_state: bytes
     memory_state: bytes
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
     size_bytes: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -207,7 +209,7 @@ class TrafficPredictor:
         self._patterns: dict[str, dict[int, float]] = {}  # function_id -> hour -> expected_rps
 
     def record_invocation(self, function_id: str, timestamp: Optional[datetime] = None) -> None:
-        ts = timestamp or datetime.utcnow()
+        ts = timestamp or utc_now()
         self._history[function_id].append(ts)
 
     def predict_load(
@@ -220,7 +222,7 @@ class TrafficPredictor:
         if not history:
             return 0.0
 
-        now = datetime.utcnow()
+        now = utc_now()
         window_start = now - timedelta(seconds=self.window_seconds)
 
         # Filter recent history
@@ -361,7 +363,7 @@ class ColdStartOptimizer:
         metrics = self._metrics[function_id]
         metrics.function_id = function_id
         metrics.total_invocations += 1
-        metrics.last_updated = datetime.utcnow()
+        metrics.last_updated = utc_now()
 
         if cold_start:
             metrics.cold_starts += 1

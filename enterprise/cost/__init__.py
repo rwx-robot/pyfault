@@ -21,6 +21,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
 
+from pyfault.common.time import utc_now
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 logger = logging.getLogger(__name__)
@@ -89,13 +91,13 @@ class PriceRule:
     conditions: dict[str, Any] = field(default_factory=dict)  # region, instance_type, etc.
 
     # Validity
-    effective_from: datetime = field(default_factory=datetime.utcnow)
+    effective_from: datetime = field(default_factory=utc_now)
     effective_until: Optional[datetime] = None
 
     # Metadata
     tags: dict[str, str] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
     def calculate_cost(self, usage: float, context: Optional[dict[str, Any]] = None) -> float:
         """Calculate cost for given usage."""
@@ -137,8 +139,8 @@ class UsageRecord:
     unit: str = ""
 
     # Time
-    start_time: datetime = field(default_factory=datetime.utcnow)
-    end_time: datetime = field(default_factory=datetime.utcnow)
+    start_time: datetime = field(default_factory=utc_now)
+    end_time: datetime = field(default_factory=utc_now)
 
     # Cost
     price_rule_id: str = ""
@@ -153,7 +155,7 @@ class UsageRecord:
 
     # Metadata
     metadata: dict[str, Any] = field(default_factory=dict)
-    recorded_at: datetime = field(default_factory=datetime.utcnow)
+    recorded_at: datetime = field(default_factory=utc_now)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -203,8 +205,8 @@ class Budget:
 
     # Status
     active: bool = True
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
         # Validate/coerce period so the get_period_start/end enum chains
@@ -214,7 +216,7 @@ class Budget:
         self.period = BillingPeriod(self.period)
 
     def get_period_start(self, reference: Optional[datetime] = None) -> datetime:
-        ref = reference or datetime.utcnow()
+        ref = reference or utc_now()
         if self.period == BillingPeriod.MONTHLY:
             return ref.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         elif self.period == BillingPeriod.WEEKLY:
@@ -237,7 +239,7 @@ class Budget:
             return ref.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
 
     def get_period_end(self, reference: Optional[datetime] = None) -> datetime:
-        ref = reference or datetime.utcnow()
+        ref = reference or utc_now()
         start = self.get_period_start(ref)
         if self.period == BillingPeriod.MONTHLY:
             return (start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(seconds=1)
@@ -264,7 +266,7 @@ class Budget:
         # true — every record passed, so a record from a long-closed period
         # still fired current budget alerts (proof: 400-day-old record ->
         # 200% utilization warnings).
-        ts = timestamp if timestamp is not None else datetime.utcnow()
+        ts = timestamp if timestamp is not None else utc_now()
         return self.get_period_start() <= ts <= self.get_period_end()
 
     def to_dict(self) -> dict[str, Any]:
@@ -294,8 +296,8 @@ class CostAllocation:
     allocation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     tenant_id: str = ""
     project_id: str = ""
-    period_start: datetime = field(default_factory=datetime.utcnow)
-    period_end: datetime = field(default_factory=datetime.utcnow)
+    period_start: datetime = field(default_factory=utc_now)
+    period_end: datetime = field(default_factory=utc_now)
 
     # Costs by resource type
     costs_by_type: dict[ResourceType, float] = field(default_factory=dict)
@@ -313,7 +315,7 @@ class CostAllocation:
     details: list[UsageRecord] = field(default_factory=list)
 
     # Metadata
-    generated_at: datetime = field(default_factory=datetime.utcnow)
+    generated_at: datetime = field(default_factory=utc_now)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -363,7 +365,7 @@ class CostOptimizationRecommendation:
     rollback_possible: bool = True
 
     # Metadata
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
     tags: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -513,8 +515,8 @@ class CostTracker:
         end_time: Optional[datetime] = None,
     ) -> CostAllocation:
         """Allocate costs for a period."""
-        start = start_time or (datetime.utcnow() - timedelta(days=30))
-        end = end_time or datetime.utcnow()
+        start = start_time or (utc_now() - timedelta(days=30))
+        end = end_time or utc_now()
 
         allocation = CostAllocation(
             tenant_id=tenant_id or "",
@@ -707,7 +709,7 @@ class CostTracker:
 
     def _find_idle_resources(self, idle_days: int = 7) -> list[UsageRecord]:
         """Find resources with no activity."""
-        cutoff = datetime.utcnow() - timedelta(days=idle_days)
+        cutoff = utc_now() - timedelta(days=idle_days)
 
         # Group by resource — previously ANY recent record returned [] for
         # every resource, so idle detection never fired while other
@@ -759,7 +761,7 @@ class CostReporter:
         tenant_id: Optional[str] = None,
         month: Optional[datetime] = None,
     ) -> dict[str, Any]:
-        month = month or datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month = month or utc_now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         end = (month.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(seconds=1)
 
         allocation = self.tracker.allocate_costs(tenant_id=tenant_id, start_time=month, end_time=end)
@@ -784,7 +786,7 @@ class CostReporter:
             "by_environment": allocation.costs_by_environment,
             "by_tag": allocation.costs_by_tag,
             "recommendations": [r.to_dict() for r in recommendations],
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": utc_now().isoformat(),
         }
 
     async def generate_budget_report(self, budget_id: str) -> dict[str, Any]:
@@ -853,7 +855,7 @@ class CostReporter:
             "project_breakdown": project_details,
             "by_environment": allocation.costs_by_environment,
             "by_category": {k.value: v for k, v in allocation.costs_by_category.items()},
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": utc_now().isoformat(),
         }
 
 

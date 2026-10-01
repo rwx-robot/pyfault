@@ -21,6 +21,8 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Callable, Optional
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -88,8 +90,8 @@ class EdgeScalingPolicy:
     cost_aware: bool = True
 
     enabled: bool = True
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
 
 @dataclass
@@ -105,7 +107,7 @@ class ScalingActivity:
     trigger: ScalingTrigger = ScalingTrigger.CUSTOM
     trigger_value: float = 0.0
     reason: str = ""
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     completed_at: Optional[datetime] = None
     success: bool = True
     error_message: str = ""
@@ -191,7 +193,7 @@ class MetricCollector:
                 else:
                     value = collector(function_id, region)
 
-                timestamp = datetime.utcnow()
+                timestamp = utc_now()
                 self._metrics[f"{key}:{name}"].append((timestamp, value))
                 results[name] = value
             except Exception as e:
@@ -207,7 +209,7 @@ class MetricCollector:
         duration: Optional[int] = None,
     ) -> list[tuple[datetime, float]]:
         duration = duration or self.window_seconds
-        cutoff = datetime.utcnow() - timedelta(seconds=duration)
+        cutoff = utc_now() - timedelta(seconds=duration)
         key = f"{function_id}:{region}:{metric_name}"
         return [(ts, val) for ts, val in self._metrics.get(key, []) if ts >= cutoff]
 
@@ -346,7 +348,7 @@ class PredictiveScalingStrategy(ScalingStrategy):
 
     def record(self, function_id: str, region: str, value: float) -> None:
         key = f"{function_id}:{region}"
-        self._history[key].append((datetime.utcnow(), value))
+        self._history[key].append((utc_now(), value))
 
     async def evaluate(
         self,
@@ -423,7 +425,7 @@ class EdgeAutoscaler:
         self._last_evaluation: dict[str, datetime] = {}
 
     def add_policy(self, policy: EdgeScalingPolicy) -> None:
-        policy.updated_at = datetime.utcnow()
+        policy.updated_at = utc_now()
         self._policies[policy.policy_id] = policy
 
         # Initialize capacities for regions
@@ -505,7 +507,7 @@ class EdgeAutoscaler:
         capacity = self.get_capacity(policy.function_id, region)
 
         # Check cooldowns
-        now = datetime.utcnow()
+        now = utc_now()
         if capacity.scale_up_cooldown_until and now < capacity.scale_up_cooldown_until:
             return None
         if capacity.scale_down_cooldown_until and now < capacity.scale_down_cooldown_until:
@@ -600,22 +602,22 @@ class EdgeAutoscaler:
                 success = await self._scale_down(policy, capacity, region, target)
 
             activity.success = success
-            activity.completed_at = datetime.utcnow()
+            activity.completed_at = utc_now()
 
             if success:
                 # Update cooldowns
                 if direction == ScalingDirection.UP:
-                    capacity.scale_up_cooldown_until = datetime.utcnow() + timedelta(seconds=policy.scale_up_cooldown)
+                    capacity.scale_up_cooldown_until = utc_now() + timedelta(seconds=policy.scale_up_cooldown)
                 else:
-                    capacity.scale_down_cooldown_until = datetime.utcnow() + timedelta(seconds=policy.scale_down_cooldown)
+                    capacity.scale_down_cooldown_until = utc_now() + timedelta(seconds=policy.scale_down_cooldown)
 
-                capacity.last_scaled = datetime.utcnow()
+                capacity.last_scaled = utc_now()
                 logger.info(f"Scaled {direction.value} {policy.function_id} in {region}: {capacity.current_instances} -> {target}")
 
         except Exception as e:
             activity.success = False
             activity.error_message = str(e)
-            activity.completed_at = datetime.utcnow()
+            activity.completed_at = utc_now()
             logger.error(f"Scaling failed: {e}")
 
         self._activities.append(activity)

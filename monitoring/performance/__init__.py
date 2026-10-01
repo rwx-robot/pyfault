@@ -24,6 +24,8 @@ from typing import Any, Callable, Optional, Union, cast
 import numpy as np
 import pandas as pd
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -59,7 +61,7 @@ class PerformanceMetric:
     model_id: str
     metric_type: MetricType
     value: float
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     tags: dict[str, str] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -108,7 +110,7 @@ class Alert:
     message: str = ""
     value: float = 0.0
     threshold: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     acknowledged: bool = False
     acknowledged_at: Optional[datetime] = None
     acknowledged_by: str = ""
@@ -163,7 +165,7 @@ class MetricsCollector:
 
         # Aggregation
         self._aggregates: dict[str, dict[str, float]] = defaultdict(dict)
-        self._last_flush = datetime.utcnow()
+        self._last_flush = utc_now()
 
         # Background tasks
         self._running = False
@@ -195,7 +197,7 @@ class MetricsCollector:
         # collided across hours, replaying old data into every hour's bucket)
         window_key = (
             f"{model_id}:{metric_type.value}:"
-            f"{datetime.utcnow().strftime('%Y%m%d%H%M')}"
+            f"{utc_now().strftime('%Y%m%d%H%M')}"
         )
         self._sliding_windows[window_key].append(value)
 
@@ -349,7 +351,7 @@ class MetricsCollector:
             return {}
 
         # Filter by window
-        cutoff = datetime.utcnow() - timedelta(minutes=window_minutes)
+        cutoff = utc_now() - timedelta(minutes=window_minutes)
         recent = [m for m in metrics if m.timestamp >= cutoff]
 
         if not recent:
@@ -388,7 +390,7 @@ class MetricsCollector:
                 metric_types.add(MetricType(key.split(":")[1]))
 
         # Create time buckets
-        current = datetime.utcnow().replace(second=0, microsecond=0)
+        current = utc_now().replace(second=0, microsecond=0)
         start = current - timedelta(hours=hours)
 
         while current >= start:
@@ -441,7 +443,7 @@ class MetricsCollector:
         for alert in self._alerts:
             if alert.alert_id == alert_id:
                 alert.acknowledged = True
-                alert.acknowledged_at = datetime.utcnow()
+                alert.acknowledged_at = utc_now()
                 alert.acknowledged_by = acknowledged_by
                 return True
         return False
@@ -467,7 +469,7 @@ class MetricsCollector:
 
     async def _flush(self) -> None:
         # Persist metrics to storage (placeholder)
-        self._last_flush = datetime.utcnow()
+        self._last_flush = utc_now()
 
     async def _sla_check_loop(self) -> None:
         while self._running:
@@ -589,7 +591,7 @@ class PerformanceDashboard:
                 }
 
         recent_alerts = [a for a in self.collector.get_alerts(model_id=model_id, limit=100)
-                        if a.timestamp > datetime.utcnow() - timedelta(hours=24)]
+                        if a.timestamp > utc_now() - timedelta(hours=24)]
 
         return {
             "model_id": model_id,

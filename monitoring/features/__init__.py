@@ -27,6 +27,8 @@ from typing import Any, Callable, Optional, Union
 import numpy as np
 import pandas as pd
 
+from pyfault.common.time import utc_now
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 logger = logging.getLogger(__name__)
@@ -118,8 +120,8 @@ class FeatureDefinition:
     # Metadata
     tags: dict[str, str] = field(default_factory=dict)
     owner: str = ""
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
     # Validation
     min_value: Optional[float] = None
@@ -166,7 +168,7 @@ class FeatureVector:
     """A feature vector for an entity."""
     entity_id: str
     features: dict[str, Any]
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     event_timestamp: Optional[datetime] = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -199,7 +201,7 @@ class FeatureView:
     # Tags
     tags: dict[str, str] = field(default_factory=dict)
     owner: str = ""
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -232,8 +234,8 @@ class FeatureService:
     enable_metrics: bool = True
     log_requests: bool = False
 
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
 
 class FeatureRegistry:
@@ -259,7 +261,7 @@ class FeatureRegistry:
             feature.feature_id = existing_id
             feature.version = existing.version + 1
             feature.created_at = existing.created_at
-            feature.updated_at = datetime.utcnow()
+            feature.updated_at = utc_now()
 
             # Archive old version
             self._version_history[existing_id].append(existing)
@@ -308,7 +310,7 @@ class FeatureRegistry:
     def deprecate_feature(self, feature_id: str) -> bool:
         if feature_id in self._features:
             self._features[feature_id].deprecated = True
-            self._features[feature_id].updated_at = datetime.utcnow()
+            self._features[feature_id].updated_at = utc_now()
             return True
         return False
 
@@ -757,7 +759,7 @@ class FeatureServiceClient:
         # Check cache
         if use_cache and cache_key in self._cache:
             cached, cached_time = self._cache[cache_key]
-            if (datetime.utcnow() - cached_time).total_seconds() < self.cache_ttl:
+            if (utc_now() - cached_time).total_seconds() < self.cache_ttl:
                 return cached
 
         # Fetch from store
@@ -771,7 +773,7 @@ class FeatureServiceClient:
 
         # Update cache
         if use_cache:
-            self._cache[cache_key] = (result, datetime.utcnow())
+            self._cache[cache_key] = (result, utc_now())
 
         return result
 
@@ -790,7 +792,7 @@ class FeatureServiceClient:
             cache_key = self._cache_key(eid, feature_names)
             if use_cache and cache_key in self._cache:
                 cached, cached_time = self._cache[cache_key]
-                if (datetime.utcnow() - cached_time).total_seconds() < self.cache_ttl:
+                if (utc_now() - cached_time).total_seconds() < self.cache_ttl:
                     results[eid] = cached
                 else:
                     to_fetch.append(eid)
@@ -810,7 +812,7 @@ class FeatureServiceClient:
             if use_cache:
                 for eid, feats in fetched.items():
                     cache_key = self._cache_key(eid, feature_names)
-                    self._cache[cache_key] = (feats, datetime.utcnow())
+                    self._cache[cache_key] = (feats, utc_now())
 
         return results
 
@@ -842,7 +844,7 @@ class FeatureLineageTracker:
         self._lineage[feature.feature_id] = {
             "feature_id": feature.feature_id,
             "name": feature.name,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": utc_now().isoformat(),
             "source": source,
             "code": code,
             "version": feature.version,

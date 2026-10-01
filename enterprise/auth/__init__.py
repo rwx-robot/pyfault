@@ -32,6 +32,8 @@ from urllib.parse import urlencode
 import bcrypt
 import jwt
 
+from pyfault.common.time import utc_now
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 logger = logging.getLogger(__name__)
@@ -168,8 +170,8 @@ class Role:
     permissions: PermissionSet = field(default_factory=PermissionSet)
     parent_roles: list[str] = field(default_factory=list)  # Role inheritance
     is_system: bool = False
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def get_all_permissions(
@@ -220,8 +222,8 @@ class Tenant:
     plan: str = "free"  # free, starter, pro, enterprise
     settings: dict[str, Any] = field(default_factory=dict)
     limits: dict[str, int] = field(default_factory=dict)  # Resource limits
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
     deleted_at: Optional[datetime] = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -259,8 +261,8 @@ class User:
     last_failed_login: Optional[datetime] = None
     failed_login_count: int = 0
     password_changed_at: Optional[datetime] = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self, include_sensitive: bool = False) -> dict[str, Any]:
@@ -300,14 +302,14 @@ class Session:
     ip_address: str = ""
     user_agent: str = ""
     device_fingerprint: str = ""
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    expires_at: datetime = field(default_factory=lambda: datetime.utcnow() + timedelta(hours=24))
-    last_activity: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    expires_at: datetime = field(default_factory=lambda: utc_now() + timedelta(hours=24))
+    last_activity: datetime = field(default_factory=utc_now)
     revoked: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def is_expired(self) -> bool:
-        return datetime.utcnow() >= self.expires_at
+        return utc_now() >= self.expires_at
 
     def is_valid(self) -> bool:
         return not self.revoked and not self.is_expired()
@@ -342,14 +344,14 @@ class APIKey:
     last_used: Optional[datetime] = None
     usage_count: int = 0
     rate_limit: int = 1000  # Requests per hour
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
     revoked_at: Optional[datetime] = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def is_valid(self) -> bool:
         if self.status != "active":
             return False
-        return not (self.expires_at and datetime.utcnow() >= self.expires_at)
+        return not (self.expires_at and utc_now() >= self.expires_at)
 
     def to_dict(self, include_key: bool = False) -> dict[str, Any]:
         data = {
@@ -403,7 +405,7 @@ class TokenManager:
         session_id: Optional[str] = None,
         extra_claims: Optional[dict[str, Any]] = None,
     ) -> str:
-        now = datetime.utcnow()
+        now = utc_now()
         payload = {
             "sub": user_id,
             "tid": tenant_id,
@@ -428,7 +430,7 @@ class TokenManager:
         tenant_id: str,
         session_id: Optional[str] = None,
     ) -> str:
-        now = datetime.utcnow()
+        now = utc_now()
         payload = {
             "sub": user_id,
             "tid": tenant_id,
@@ -450,7 +452,7 @@ class TokenManager:
         permissions: list[str],
         expires_at: Optional[datetime] = None,
     ) -> str:
-        now = datetime.utcnow()
+        now = utc_now()
         payload = {
             "sub": user_id,
             "tid": tenant_id,
@@ -713,7 +715,7 @@ class RoleRegistry:
             if hasattr(role, key) and key != "role_id":
                 setattr(role, key, value)
 
-        role.updated_at = datetime.utcnow()
+        role.updated_at = utc_now()
         return True
 
     def delete_role(self, role_id: str) -> bool:
@@ -795,7 +797,7 @@ class AuthManager:
             if hasattr(tenant, key) and key != "tenant_id":
                 setattr(tenant, key, value)
 
-        tenant.updated_at = datetime.utcnow()
+        tenant.updated_at = utc_now()
         return True
 
     # User management
@@ -823,7 +825,7 @@ class AuthManager:
 
         if password:
             user.password_hash = self.password_manager.hash_password(password)
-            user.password_changed_at = datetime.utcnow()
+            user.password_changed_at = utc_now()
 
         if roles:
             user.roles = roles
@@ -859,7 +861,7 @@ class AuthManager:
             if hasattr(user, key) and key not in ["user_id", "tenant_id", "password_hash"]:
                 setattr(user, key, value)
 
-        user.updated_at = datetime.utcnow()
+        user.updated_at = utc_now()
         return True
 
     def authenticate_user(
@@ -882,7 +884,7 @@ class AuthManager:
 
         # Check rate limiting
         key = f"{tenant_id}:{username_or_email}:{ip_address}"
-        now = datetime.utcnow()
+        now = utc_now()
         attempts = self._login_attempts[key]
         attempts = [a for a in attempts if now - a < self._lockout_duration]
 
@@ -923,9 +925,9 @@ class AuthManager:
 
         # Set expiry
         if remember_me:
-            session.expires_at = datetime.utcnow() + timedelta(days=30)
+            session.expires_at = utc_now() + timedelta(days=30)
         else:
-            session.expires_at = datetime.utcnow() + timedelta(hours=24)
+            session.expires_at = utc_now() + timedelta(hours=24)
 
         # Generate tokens
         permissions = set()
@@ -965,7 +967,7 @@ class AuthManager:
                 return False, None, {"error": "Session invalid or expired"}
 
             # Update last activity
-            session.last_activity = datetime.utcnow()
+            session.last_activity = utc_now()
             return True, session, payload
 
         # Stateless token
@@ -1075,7 +1077,7 @@ class AuthManager:
             return False, None, {"error": "Key mismatch"}
 
         # Update usage
-        api_key.last_used = datetime.utcnow()
+        api_key.last_used = utc_now()
         api_key.usage_count += 1
 
         return True, api_key, payload
@@ -1084,7 +1086,7 @@ class AuthManager:
         api_key = self._api_keys.get(key_id)
         if api_key:
             api_key.status = "revoked"
-            api_key.revoked_at = datetime.utcnow()
+            api_key.revoked_at = utc_now()
             return True
         return False
 

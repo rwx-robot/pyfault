@@ -8,9 +8,10 @@ import uuid
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Optional, TypeVar
+
+from pyfault.common.time import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -211,7 +212,7 @@ class RoutingContext:
         self.headers = headers or {}
         self.metadata = metadata or {}
         self.request_id = str(uuid.uuid4())
-        self.timestamp = datetime.utcnow()
+        self.timestamp = utc_now()
 
 
 class IntelligentRouter:

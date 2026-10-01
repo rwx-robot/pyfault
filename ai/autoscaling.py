@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Callable, Optional
 
+from pyfault.common.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,7 +40,7 @@ class ScalingMetric:
     """Scaling metric."""
     name: str
     value: float
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -70,7 +72,7 @@ class ScalingAction:
     desired_replicas: int
     reason: str
     action_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -110,7 +112,7 @@ class MetricsCollector:
         return results
 
     def get_metric_history(self, name: str, duration: int = 300) -> list[ScalingMetric]:
-        now = datetime.utcnow()
+        now = utc_now()
         cutoff = now - timedelta(seconds=duration)
         return [m for m in self._metrics[name] if m.timestamp >= cutoff]
 
@@ -344,7 +346,7 @@ class AdaptiveScaler:
                     # Check cooldown for this action's direction
                     last = self._last_action.get(f"{resource_id}:{policy.policy_id}")
                     if last:
-                        elapsed = (datetime.utcnow() - last).total_seconds()
+                        elapsed = (utc_now() - last).total_seconds()
                         cooldown = (
                             policy.scale_up_cooldown
                             if action.direction == ScalingDirection.UP
@@ -371,7 +373,7 @@ class AdaptiveScaler:
             success = await resource["scaler"](action.desired_replicas)
             if success:
                 resource["current_replicas"] = action.desired_replicas
-                self._last_action[f"{action.resource_id}:{action.policy_id}"] = datetime.utcnow()
+                self._last_action[f"{action.resource_id}:{action.policy_id}"] = utc_now()
                 self._action_history.append(action)
                 logger.info(f"Scaled {action.resource_id}: {action.current_replicas} -> {action.desired_replicas} ({action.reason})")
                 return True

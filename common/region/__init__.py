@@ -9,6 +9,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
+from pyfault.common.time import utc_now
+
 from .compliance import (
     CCPA_RULES,
     GDPR_RULES,
@@ -89,8 +91,8 @@ class Region:
     timezone: str = "UTC"
     tags: dict[str, str] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -191,7 +193,7 @@ class RegionManager:
                     new_status = RegionStatus.ACTIVE if healthy else RegionStatus.DEGRADED
                     if region.status != new_status:
                         region.status = new_status
-                        region.updated_at = datetime.utcnow()
+                        region.updated_at = utc_now()
             except Exception:
                 pass
             await asyncio.sleep(interval)

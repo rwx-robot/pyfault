@@ -15,6 +15,7 @@ from pyfault.common.eventsourcing.events import (
     EventFactory,
     EventMetadata,
 )
+from pyfault.common.time import utc_now
 
 
 class AggregateState(str, Enum):
@@ -33,13 +34,13 @@ class AggregateVersion:
     """Aggregate version information."""
     version: int = 0
     last_event_id: Optional[str] = None
-    last_updated: datetime = field(default_factory=datetime.utcnow)
+    last_updated: datetime = field(default_factory=utc_now)
 
     def increment(self, event_id: str) -> "AggregateVersion":
         return AggregateVersion(
             version=self.version + 1,
             last_event_id=event_id,
-            last_updated=datetime.utcnow(),
+            last_updated=utc_now(),
         )
 
 
@@ -164,7 +165,7 @@ class AggregateRoot(ABC):
             aggregate_type=self._aggregate_type,
             version=self._version,
             state=self._get_state(),
-            timestamp=datetime.utcnow(),
+            timestamp=utc_now(),
         )
 
     def restore_from_snapshot(self, snapshot: "AggregateSnapshot") -> None:

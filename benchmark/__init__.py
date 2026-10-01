@@ -30,6 +30,8 @@ from typing import Any, Callable, Optional, Union
 
 import psutil
 
+from pyfault.common.time import utc_now
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 logger = logging.getLogger(__name__)
@@ -311,7 +313,7 @@ class BenchmarkRunner:
             config=config,
         )
         results.status = BenchmarkStatus.RUNNING
-        results.started_at = datetime.utcnow()
+        results.started_at = utc_now()
 
         self._current_results = results
         self._running = True
@@ -346,7 +348,7 @@ class BenchmarkRunner:
             results.errors.append(str(e))
 
         finally:
-            results.completed_at = datetime.utcnow()
+            results.completed_at = utc_now()
             if results.started_at:
                 results.duration_seconds = (results.completed_at - results.started_at).total_seconds()
 
@@ -696,7 +698,7 @@ class BenchmarkSuite:
         """Compare current results with baseline."""
         comparison: dict[str, Any] = {
             "benchmark": name,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now().isoformat(),
             "current": current.to_dict(),
             "baseline": baseline.to_dict(),
             "deltas": {},
@@ -755,7 +757,7 @@ class Profiler:
                 "name": name,
                 "duration": elapsed,
                 "stats": s.getvalue(),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utc_now().isoformat(),
             })
 
     def get_profiles(self) -> list[dict[str, Any]]:
@@ -807,7 +809,7 @@ class MemoryProfiler:
 
         result = {
             "label": label,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now().isoformat(),
             "top_allocations": stats,
         }
         self._snapshots.append(result)

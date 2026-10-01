@@ -28,6 +28,8 @@ from typing import Any, Callable, Optional, Union
 import numpy as np
 import pandas as pd
 
+from pyfault.common.time import utc_now
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 logger = logging.getLogger(__name__)
@@ -77,8 +79,8 @@ class Artifact:
 
     # Provenance
     created_by: str = ""
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
     # Lineage
     parent_artifacts: list[str] = field(default_factory=list)  # artifact_ids
@@ -111,7 +113,7 @@ class LineageEvent:
     event_type: LineageEventType = LineageEventType.CREATED
     artifact_id: str = ""
     actor: str = ""  # user, system, pipeline
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     details: dict[str, Any] = field(default_factory=dict)
     context: dict[str, Any] = field(default_factory=dict)  # pipeline_id, experiment_id, etc.
 
@@ -174,7 +176,7 @@ class ModelLineage:
     deployment_environments: list[str] = field(default_factory=list)
 
     # Timestamps
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
     trained_at: Optional[datetime] = None
     deployed_at: Optional[datetime] = None
 
@@ -394,7 +396,7 @@ class ArtifactStore:
             artifact.hash = self._compute_hash(artifact.path)
             artifact.size_bytes = Path(artifact.path).stat().st_size
 
-        artifact.updated_at = datetime.utcnow()
+        artifact.updated_at = utc_now()
 
         # Store in index
         self._artifacts[artifact.artifact_id] = artifact
@@ -476,8 +478,8 @@ class ArtifactStore:
             if parent_id not in child.parent_artifacts:
                 child.parent_artifacts.append(parent_id)
 
-            parent.updated_at = datetime.utcnow()
-            child.updated_at = datetime.utcnow()
+            parent.updated_at = utc_now()
+            child.updated_at = utc_now()
 
             # Record event
             event = LineageEvent(
@@ -567,7 +569,7 @@ class LineageTracker:
             "pipeline_id": pipeline_id,
             "pipeline_name": pipeline_name,
             "pipeline_version": pipeline_version,
-            "started_at": datetime.utcnow(),
+            "started_at": utc_now(),
             "context": context or {},
             "artifacts_created": [],
             "artifacts_used": [],
@@ -586,7 +588,7 @@ class LineageTracker:
             return {"error": "Pipeline not found"}
 
         run = self._pipeline_runs[pipeline_id]
-        run["ended_at"] = datetime.utcnow()
+        run["ended_at"] = utc_now()
         run["duration_seconds"] = (run["ended_at"] - run["started_at"]).total_seconds()
         run["status"] = status
         run["artifacts_created_count"] = len(run["artifacts_created"])
@@ -736,7 +738,7 @@ class LineageTracker:
         code_bundle = {
             "git": git,
             "diff": diff,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now().isoformat(),
         }
 
         content = json.dumps(code_bundle, indent=2).encode()
@@ -831,7 +833,7 @@ class ReproducibilityManager:
         snapshot = {
             "snapshot_id": snapshot_id,
             "name": name,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now().isoformat(),
             "git": self.lineage.track_code(),
             "environment": self.lineage.track_environment(),
             "context": self.lineage._current_context.copy(),

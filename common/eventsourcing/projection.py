@@ -13,6 +13,7 @@ from typing import Any, Callable, Optional
 
 from pyfault.common.eventsourcing.events import Event
 from pyfault.common.eventsourcing.store import EventStore, InMemoryEventStore
+from pyfault.common.time import utc_now
 
 
 class ProjectionType(str, Enum):
@@ -33,7 +34,7 @@ class ProjectionStatus:
     errors: int = 0
     last_error: Optional[str] = None
     is_running: bool = False
-    last_updated: datetime = field(default_factory=datetime.utcnow)
+    last_updated: datetime = field(default_factory=utc_now)
 
 
 class Projection(ABC):
@@ -83,13 +84,13 @@ class Projection(ABC):
             except Exception as e:
                 self.status.errors += 1
                 self.status.last_error = str(e)
-                self.status.last_updated = datetime.utcnow()
+                self.status.last_updated = utc_now()
                 raise
 
         self.status.events_processed += 1
         self.status.last_event_id = getattr(event.metadata, 'event_id', None)
-        self.status.last_processed_timestamp = datetime.utcnow()
-        self.status.last_updated = datetime.utcnow()
+        self.status.last_processed_timestamp = utc_now()
+        self.status.last_updated = utc_now()
 
     @abstractmethod
     async def project(self, event: Event) -> None:
@@ -218,7 +219,7 @@ class AggregationProjection(Projection):
             except Exception as e:
                 self.status.errors += 1
                 self.status.last_error = str(e)
-                self.status.last_updated = datetime.utcnow()
+                self.status.last_updated = utc_now()
 
         # Call parent handle_event for status updates
         await super().handle_event(event)

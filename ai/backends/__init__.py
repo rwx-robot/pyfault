@@ -26,6 +26,8 @@ from typing import Any, Callable, Optional, Union
 
 import numpy as np
 
+from pyfault.common.time import utc_now
+
 # Suppress common warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -163,7 +165,7 @@ class ONNXBackend(InferenceBackend):
                 self._output_shapes[out.name] = tuple(out.shape)
 
             self._loaded = True
-            self._load_time = datetime.utcnow()
+            self._load_time = utc_now()
             logger.info(f"ONNX model loaded: {self.config.model_path} on {self._providers}")
             return True
 
@@ -310,7 +312,7 @@ class PyTorchBackend(InferenceBackend):
             self._infer_io_info()
 
             self._loaded = True
-            self._load_time = datetime.utcnow()
+            self._load_time = utc_now()
             logger.info(f"PyTorch model loaded: {self.config.model_path} on {self._device}")
             return True
 
@@ -453,7 +455,7 @@ class TensorFlowBackend(InferenceBackend):
                 self._output_shapes[out.name.split(':')[0]] = tuple(out.shape.as_list())
 
             self._loaded = True
-            self._load_time = datetime.utcnow()
+            self._load_time = utc_now()
             logger.info(f"TensorFlow model loaded: {self.config.model_path}")
             return True
 
@@ -586,7 +588,7 @@ class SklearnBackend(InferenceBackend):
                 self._output_names = ["output"]
 
             self._loaded = True
-            self._load_time = datetime.utcnow()
+            self._load_time = utc_now()
             logger.info(f"sklearn model loaded: {self.config.model_path}")
             return True
 
@@ -695,7 +697,7 @@ class XGBoostBackend(InferenceBackend):
             self._output_names = ["prediction"]
 
             self._loaded = True
-            self._load_time = datetime.utcnow()
+            self._load_time = utc_now()
             logger.info(f"XGBoost model loaded: {self.config.model_path}")
             return True
         except Exception as e:
@@ -771,7 +773,7 @@ class LightGBMBackend(InferenceBackend):
             self._output_names = ["prediction"]
 
             self._loaded = True
-            self._load_time = datetime.utcnow()
+            self._load_time = utc_now()
             logger.info(f"LightGBM model loaded: {self.config.model_path}")
             return True
         except Exception as e:
@@ -861,7 +863,7 @@ class CustomBackend(InferenceBackend):
                 return False
 
         self._loaded = True
-        self._load_time = datetime.utcnow()
+        self._load_time = utc_now()
         return True
 
     async def unload(self) -> bool:
