@@ -12,7 +12,7 @@ from typing import Any, Callable, Generic, Optional, TypeVar
 from pyfault.common.cqrs.core import CommandMiddleware
 from pyfault.common.cqrs.middleware import MiddlewareChain
 from pyfault.common.eventsourcing.events import Event
-from pyfault.common.time import utc_now
+from pyfault.common.time import parse_iso, utc_now
 
 
 class CommandStatus(str, Enum):
@@ -87,7 +87,7 @@ class Command:
             aggregate_id=data.get("aggregate_id"),
             correlation_id=data.get("correlation_id"),
             causation_id=data.get("causation_id"),
-            timestamp=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else utc_now(),
+            timestamp=parse_iso(data["timestamp"]) if data.get("timestamp") else utc_now(),
             metadata=data.get("metadata", {}),
         )
 

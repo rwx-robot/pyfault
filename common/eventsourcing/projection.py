@@ -13,7 +13,7 @@ from typing import Any, Callable, Optional
 
 from pyfault.common.eventsourcing.events import Event
 from pyfault.common.eventsourcing.store import EventStore, InMemoryEventStore
-from pyfault.common.time import utc_now
+from pyfault.common.time import parse_iso, utc_now
 
 
 class ProjectionType(str, Enum):
@@ -111,7 +111,7 @@ class Projection(ABC):
     def restore_state(self, state: dict[str, Any]) -> None:
         """Restore projection state."""
         self.status.last_event_id = state.get("last_event_id")
-        self.status.last_processed_timestamp = datetime.fromisoformat(state["last_processed_timestamp"]) if state.get("last_processed_timestamp") else None
+        self.status.last_processed_timestamp = parse_iso(state["last_processed_timestamp"]) if state.get("last_processed_timestamp") else None
         self.status.events_processed = state.get("events_processed", 0)
         self.status.errors = state.get("errors", 0)
 

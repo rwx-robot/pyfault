@@ -23,7 +23,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
-from pyfault.common.time import utc_now
+from pyfault.common.time import parse_iso, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +276,7 @@ class DiskCache:
 
             meta = self._index[key]
             if meta.get("expires_at"):
-                expires = datetime.fromisoformat(meta["expires_at"])
+                expires = parse_iso(meta["expires_at"])
                 if utc_now() > expires:
                     await self.delete(key)
                     return None
@@ -348,7 +348,7 @@ class DiskCache:
 
             meta = self._index[key]
             if meta.get("expires_at"):
-                expires = datetime.fromisoformat(meta["expires_at"])
+                expires = parse_iso(meta["expires_at"])
                 if utc_now() > expires:
                     await self.delete(key)
                     return False

@@ -18,7 +18,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from pyfault.common.time import utc_now
+from pyfault.common.time import parse_iso, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -753,7 +753,7 @@ class AuditLogger:
         if region_id:
             events = [e for e in events if e["region_id"] == region_id]
         if since:
-            events = [e for e in events if datetime.fromisoformat(e["timestamp"]) >= since]
+            events = [e for e in events if parse_iso(e["timestamp"]) >= since]
 
         return events[-limit:]
 

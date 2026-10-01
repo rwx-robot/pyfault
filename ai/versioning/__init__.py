@@ -18,12 +18,12 @@ import uuid
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from pyfault.common.time import utc_now
+from pyfault.common.time import parse_iso, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -222,10 +222,10 @@ class ModelVersion:
             validation_results=data.get("validation_results", {}),
             deployed_regions=data.get("deployed_regions", []),
             traffic_percentage=data.get("traffic_percentage", 0.0),
-            created_at=datetime.fromisoformat(data["created_at"]) if isinstance(data["created_at"], str) else data["created_at"],
-            updated_at=datetime.fromisoformat(data["updated_at"]) if isinstance(data["updated_at"], str) else data["updated_at"],
-            promoted_at=datetime.fromisoformat(data["promoted_at"]) if data.get("promoted_at") else None,
-            deprecated_at=datetime.fromisoformat(data["deprecated_at"]) if data.get("deprecated_at") else None,
+            created_at=parse_iso(data["created_at"]) if isinstance(data["created_at"], str) else data["created_at"],
+            updated_at=parse_iso(data["updated_at"]) if isinstance(data["updated_at"], str) else data["updated_at"],
+            promoted_at=parse_iso(data["promoted_at"]) if data.get("promoted_at") else None,
+            deprecated_at=parse_iso(data["deprecated_at"]) if data.get("deprecated_at") else None,
             source_commit=data.get("source_commit", ""),
             source_branch=data.get("source_branch", ""),
             build_number=data.get("build_number", 0),
@@ -686,7 +686,10 @@ class DeploymentManager:
 
     def get_deployment_history(self, limit: int = 100) -> list[Deployment]:
         deployments = list(self._deployments.values())
-        deployments.sort(key=lambda d: d.started_at or datetime.min, reverse=True)
+        # datetime.min is naive; mixing it with aware started_at raises
+        # TypeError, so fall back to an aware sentinel instead.
+        earliest = datetime.min.replace(tzinfo=timezone.utc)
+        deployments.sort(key=lambda d: d.started_at or earliest, reverse=True)
         return deployments[:limit]
 
 

@@ -15,7 +15,7 @@ from pyfault.common.eventsourcing.events import (
     EventFactory,
     EventMetadata,
 )
-from pyfault.common.time import utc_now
+from pyfault.common.time import parse_iso, utc_now
 
 
 class AggregateState(str, Enum):
@@ -214,5 +214,5 @@ class AggregateSnapshot:
             aggregate_type=data["aggregate_type"],
             version=data["version"],
             state=data["state"],
-            timestamp=datetime.fromisoformat(data["timestamp"]),
+            timestamp=parse_iso(data["timestamp"]),
         )

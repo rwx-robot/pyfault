@@ -10,7 +10,7 @@ from enum import Enum
 from typing import Any, Callable, Generic, Optional, TypeVar
 
 from pyfault.common.cqrs.core import MiddlewareChain, QueryMiddleware
-from pyfault.common.time import utc_now
+from pyfault.common.time import parse_iso, utc_now
 
 
 class QueryStatus(str, Enum):
@@ -71,7 +71,7 @@ class Query:
         return cls(
             query_id=data.get("query_id", str(uuid.uuid4())),
             correlation_id=data.get("correlation_id"),
-            timestamp=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else utc_now(),
+            timestamp=parse_iso(data["timestamp"]) if data.get("timestamp") else utc_now(),
             metadata=data.get("metadata", {}),
         )
 

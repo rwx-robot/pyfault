@@ -1,25 +1,38 @@
 """Time helpers.
 
-The framework called ``datetime.utcnow()`` in 303 places. That call is
-deprecated from Python 3.12 and naive, which makes ``<``/``>`` comparisons
-against timezone-aware values raise ``TypeError`` while ``==`` silently
-returns ``False``.
+The framework used to read the clock through ``datetime.utcnow()`` in 303
+places. That call is deprecated from Python 3.12 and returns a **naive**
+datetime, so ``<``/``>`` against an aware value raise ``TypeError`` while
+``==`` silently returns ``False``.
 
-``utc_now()`` is a drop-in replacement: same naive-UTC semantics, no
-DeprecationWarning, and defined in exactly one place.
-
-Migrating to timezone-aware datetimes (``datetime.now(timezone.utc)``) is a
-deliberate breaking change for the public API -- ~200 test call sites build
-naive literals and several of them compare with ``==``, which would flip to
-False without raising. That migration must happen as its own reviewed change;
-when it lands, this file is the only place that needs editing.
+The migration to timezone-aware UTC lives here:
+``utc_now()`` now returns an aware datetime, and every value crossing a
+serialisation boundary goes through :func:`parse_iso` / :func:`to_utc`,
+which read a missing offset as UTC. That keeps records written before the
+migration comparable with records written after it.
 """
 
 from datetime import datetime, timezone
 
-__all__ = ["utc_now"]
+__all__ = ["utc_now", "parse_iso", "to_utc"]
 
 
 def utc_now() -> datetime:
-    """Return the current UTC time, naive (same as ``datetime.utcnow()``)."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    """Return the current time as a timezone-aware UTC datetime."""
+    return datetime.now(timezone.utc)
+
+
+def to_utc(value: datetime) -> datetime:
+    """Normalise a datetime to aware UTC; a naive value is read as UTC."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def parse_iso(value: str) -> datetime:
+    """Parse an ISO-8601 string into an aware UTC datetime.
+
+    Legacy records carry no UTC offset; without normalising them they would
+    compare as ``TypeError`` against freshly generated aware timestamps.
+    """
+    return to_utc(datetime.fromisoformat(str(value)))

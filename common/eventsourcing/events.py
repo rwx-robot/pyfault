@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional, TypeVar
 
-from pyfault.common.time import utc_now
+from pyfault.common.time import parse_iso, utc_now
 
 
 class EventType(str, Enum):
@@ -53,7 +53,7 @@ class EventMetadata:
             event_id=data.get("event_id", str(uuid.uuid4())),
             correlation_id=data.get("correlation_id"),
             causation_id=data.get("causation_id"),
-            timestamp=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else utc_now(),
+            timestamp=parse_iso(data["timestamp"]) if data.get("timestamp") else utc_now(),
             user_id=data.get("user_id"),
             session_id=data.get("session_id"),
             tags=data.get("tags", {}),

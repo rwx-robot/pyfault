@@ -14,7 +14,7 @@ from typing import Any, Optional, TypeVar
 
 import aiofiles
 
-from pyfault.common.time import utc_now
+from pyfault.common.time import parse_iso, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -145,10 +145,10 @@ class PluginRegistry:
         fields = {k: v for k, v in raw.items()
                   if k in PluginManifest.__dataclass_fields__}
         if isinstance(fields.get("created_at"), str):
-            fields["created_at"] = datetime.fromisoformat(
+            fields["created_at"] = parse_iso(
                 fields["created_at"])
         if isinstance(fields.get("updated_at"), str):
-            fields["updated_at"] = datetime.fromisoformat(
+            fields["updated_at"] = parse_iso(
                 fields["updated_at"])
         # JSON always stores the enum's value string (both formats)
         fields["category"] = PluginCategory(fields["category"])
@@ -180,8 +180,8 @@ class PluginRegistry:
                         rating=pkg_data.get("rating", 0.0),
                         review_count=pkg_data.get("review_count", 0),
                         reviews=pkg_data.get("reviews", []),
-                        installed_at=datetime.fromisoformat(pkg_data["installed_at"]) if pkg_data.get("installed_at") else None,
-                        last_updated=datetime.fromisoformat(pkg_data["last_updated"]) if pkg_data.get("last_updated") else None,
+                        installed_at=parse_iso(pkg_data["installed_at"]) if pkg_data.get("installed_at") else None,
+                        last_updated=parse_iso(pkg_data["last_updated"]) if pkg_data.get("last_updated") else None,
                     )
                     self._packages[manifest.plugin_id] = pkg
                     self._index[manifest.category.value][manifest.name] = pkg

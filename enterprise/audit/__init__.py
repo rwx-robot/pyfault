@@ -24,7 +24,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
 
-from pyfault.common.time import utc_now
+from pyfault.common.time import parse_iso, utc_now
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -215,7 +215,7 @@ class AuditEvent:
         event = cls(
             event_id=data.get("event_id", str(uuid.uuid4())),
             event_type=AuditEventType(data.get("event_type", "custom")),
-            timestamp=datetime.fromisoformat(data["timestamp"]) if isinstance(data["timestamp"], str) else data["timestamp"],
+            timestamp=parse_iso(data["timestamp"]) if isinstance(data["timestamp"], str) else data["timestamp"],
             actor_id=data.get("actor", {}).get("id", ""),
             actor_type=data.get("actor", {}).get("type", "user"),
             actor_name=data.get("actor", {}).get("name", ""),
